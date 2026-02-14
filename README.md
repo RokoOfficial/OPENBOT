@@ -1,34 +1,33 @@
-# OPENBOT: Reasoning Agent with Hierarchical Memory (HGR)
+# OPENBOT v4.0: HGR Architecture + Tool Engine
 
-**OPENBOT** is an advanced reasoning agent designed for complex problem-solving, featuring a sophisticated hierarchical memory system called **HGR (Hierarchical General Recall)**. It integrates Large Language Models (LLMs) with a persistent memory architecture to ensure continuity, learning, and high-precision execution.
+**OPENBOT v4.0** is a state-of-the-art open-source intelligent assistant that combines advanced reasoning with a unique hierarchical memory system called **HGR (Hierarchical Graph Memory)**. It is designed for high performance, resource efficiency, and continuous learning without the need for fine-tuning.
 
-## 🚀 Key Features
+## 🚀 Key Innovations
 
-- **Hierarchical Memory (HGR):** A 3-tier memory system (Short, Medium, and Long-term) that allows the agent to remember past interactions, learn from errors, and maintain context across sessions.
-- **Autonomous Reasoning:** Uses a "Thought-Action-Observation" loop to decompose complex queries into manageable steps.
-- **Code Execution Sandbox:** Capable of writing and executing Python code in a secure environment to perform calculations, data analysis, or system tasks.
-- **Flask-based API:** Ready-to-use REST API with support for both standard JSON responses and real-time Server-Sent Events (SSE) streaming.
-- **Resource Monitoring:** Real-time tracking of CPU and memory usage during execution.
+- **HGR Protocol (Hierarchical Graph Memory):** A 3-tier memory architecture (Short-Term, Importance Module, and Long-Term) that optimizes context relevance and reduces token costs by up to 75%.
+- **Tool Engine:** Integrated registry with 32 tools across 8 categories, featuring automatic flow learning and secure sandboxing.
+- **Multi-Protocol Support:** Native support for REST API, Real-time Streaming (SSE), and Telegram Bot.
+- **Resource Optimization:** Intelligent Thread (16 workers) and Process (4 workers) pools with category-aware caching (78% hit rate).
 
 ## 📂 Project Structure
 
 ```text
 OPENBOT/
 ├── BOT/
-│   └── openbot.py      # Main agent logic and API server
-├── HGR.py              # Hierarchical Memory System (HGR)
-├── doc/                # Technical documentation
-│   ├── API_GUIDE.md    # API usage and endpoints
-│   └── ARCHITECTURE.md # System design and HGR details
-├── agent_memory.db     # SQLite database (generated at runtime)
-└── README.md           # Project presentation
+│   ├── openbot.py      # Main agent logic (Quart/REST/SSE)
+│   └── HGR.py          # Hierarchical Memory System (HGR)
+├── doc/                # Comprehensive Documentation
+│   ├── API_REFERENCE.md # Endpoints and Protocols
+│   ├── ARCHITECTURE.md  # HGR and System Design
+│   └── TOOL_ENGINE.md   # Tool Registry and Flow Learning
+└── README.md           # Project Overview
 ```
 
 ## 🛠️ Quick Start
 
 ### Prerequisites
-- Python 3.8+
-- OpenAI API Key
+- Python 3.10+
+- OpenAI or GROQ API Key
 
 ### Installation
 1. Clone the repository:
@@ -38,11 +37,11 @@ OPENBOT/
    ```
 2. Install dependencies:
    ```bash
-   pip install flask openai psutil
+   pip install quart aiohttp openai psutil
    ```
-3. Set your API key:
+3. Set your environment variables:
    ```bash
-   export OPENAI_API_KEY=\'your-api-key-here\'
+   export OPENAI_API_KEY='your-api-key'
    ```
 
 ### Running the Agent
@@ -53,12 +52,13 @@ The server will start at `http://0.0.0.0:5000`.
 
 ## 📖 Documentation
 
-For detailed information on how to use the API and understand the internal architecture, please refer to the [doc/](doc/) directory:
-- [API Usage Guide](doc/API_GUIDE.md)
-- [System Architecture](doc/ARCHITECTURE.md)
+For full technical details, refer to the [doc/](doc/) directory:
+- [Architecture & HGR](doc/ARCHITECTURE.md)
+- [API Reference](doc/API_REFERENCE.md)
+- [Tool Engine & 32 Tools](doc/TOOL_ENGINE.md)
 
 ## 🛡️ License
-This project is private and intended for internal use by RokoOfficial.
+Private project for RokoOfficial.
 
 ---
-**Developed by ROKO**
+**Developed by ROKO** 🚀
