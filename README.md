@@ -1,64 +1,86 @@
-# OPENBOT v4.0: HGR Architecture + Tool Engine
+# 🤖 OpenBot v3.0 - Arquitetura Plug & Play com Tool Use
 
-**OPENBOT v4.0** is a state-of-the-art open-source intelligent assistant that combines advanced reasoning with a unique hierarchical memory system called **HGR (Hierarchical Graph Memory)**. It is designed for high performance, resource efficiency, and continuous learning without the need for fine-tuning.
+Bem-vindo ao **OpenBot v3.0**, uma plataforma de inteligência artificial autônoma e modular, projetada para ser o "canivete suíço" da automação e processamento de dados. Este projeto representa uma evolução significativa na integração entre Modelos de Linguagem de Grande Escala (LLMs) e a execução de ferramentas em tempo real.
 
-## 🚀 Key Innovations
+> **Nota de Crédito:** Este projeto é uma evolução baseada no conceito original do **OpenBot Project**. Esta versão v3.0 foi aprimorada e expandida por **RokoOfficial**, introduzindo uma arquitetura de memória de três níveis e um sistema de ferramentas expandido.
 
-- **HGR Protocol (Hierarchical Graph Memory):** A 3-tier memory architecture (Short-Term, Importance Module, and Long-Term) that optimizes context relevance and reduces token costs by up to 75%.
-- **Tool Engine:** Integrated registry with 32 tools across 8 categories, featuring automatic flow learning and secure sandboxing.
-- **Multi-Protocol Support:** Native support for REST API, Real-time Streaming (SSE), and Telegram Bot.
-- **Resource Optimization:** Intelligent Thread (16 workers) and Process (4 workers) pools with category-aware caching (78% hit rate).
+---
 
-## 📂 Project Structure
+## 🚀 Visão Geral
+
+O OpenBot não é apenas um chatbot; é um **Agente Autônomo** capaz de interagir com o sistema operacional, executar código, gerenciar bancos de dados e realizar operações de rede complexas. Utilizando a API do **GROQ** (com modelos Llama-3.1), o OpenBot alcança uma latência extremamente baixa, permitindo respostas e execuções quase instantâneas.
+
+### 🧠 Arquitetura de Memória HGR (3 Níveis)
+Diferente de sistemas convencionais, o OpenBot utiliza o sistema **HGR Memory**, que organiza o conhecimento em três camadas:
+1.  **Memória de Curto Prazo:** Mantém o contexto imediato da conversa para respostas rápidas.
+2.  **Memória de Trabalho:** Processa informações relevantes para a tarefa atual.
+3.  **Memória de Longo Prazo:** Armazena fatos, preferências e aprendizados em um banco de dados SQLite persistente, permitindo que o bot "lembre" de interações passadas entre sessões.
+
+---
+
+## 🛠️ O Arsenal de Ferramentas (32 Ferramentas)
+
+O OpenBot vem equipado com um registro central de ferramentas divididas em categorias estratégicas:
+
+| Categoria | Descrição | Exemplos de Ferramentas |
+| :--- | :--- | :--- |
+| **Python** | Execução e depuração de código em tempo real. | `python_execute`, `python_debug`, `python_inspect` |
+| **Shell** | Interação direta com o sistema operacional. | `shell_execute`, `shell_script`, `system_status` |
+| **Network** | Ferramentas de rede e comunicação. | `http_request`, `port_scan`, `dns_lookup` |
+| **Filesystem** | Manipulação avançada de arquivos e diretórios. | `file_write`, `file_read`, `directory_map` |
+| **Data** | Processamento de dados e SQL. | `sql_query`, `json_parse`, `csv_analyze` |
+| **Crypto** | Operações de segurança e criptografia. | `hash_generate`, `encrypt_data`, `token_verify` |
+
+---
+
+## 🔐 Segurança e Autenticação
+
+O sistema conta com uma camada de segurança robusta baseada em **JWT (JSON Web Tokens)**:
+-   **Banco de Dados de Usuários:** Gerenciamento persistente de credenciais.
+-   **Middleware de Autenticação:** Proteção de rotas API e controle de acesso.
+-   **Isolamento de Processos:** Ferramentas perigosas são monitoradas e podem ser restritas.
+
+---
+
+## 📂 Estrutura do Projeto
+
+A organização do repositório segue padrões modernos de modularidade:
 
 ```text
 OPENBOT/
-├── BOT/
-│   ├── openbot.py      # Main agent logic (Quart/REST/SSE)
-│   └── HGR.py          # Hierarchical Memory System (HGR)
-├── doc/                # Comprehensive Documentation
-│   ├── API_REFERENCE.md # Endpoints and Protocols
-│   ├── ARCHITECTURE.md  # HGR and System Design
-│   └── TOOL_ENGINE.md   # Tool Registry and Flow Learning
-└── README.md           # Project Overview
+├── BOT/                # Núcleo do Agente
+│   ├── OpenBot.py      # Script principal e API Quart
+│   ├── HGR.py          # Motor de Memória Avançada
+│   ├── auth.py         # Sistema de Autenticação JWT
+│   ├── config.py       # Configurações globais
+│   └── install.sh      # Script de instalação automatizada
+├── doc/                # Documentação Técnica Detalhada
+├── LICENSE             # Licença MIT
+└── README.md           # Esta apresentação
 ```
-
-## 🛠️ Quick Start
-
-### Prerequisites
-- Python 3.10+
-- OpenAI or GROQ API Key
-
-### Installation
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/RokoOfficial/OPENBOT.git
-   cd OPENBOT
-   ```
-2. Install dependencies:
-   ```bash
-   pip install quart aiohttp openai psutil
-   ```
-3. Set your environment variables:
-   ```bash
-   export OPENAI_API_KEY='your-api-key'
-   ```
-
-### Running the Agent
-```bash
-python3 BOT/openbot.py
-```
-The server will start at `http://0.0.0.0:5000`.
-
-## 📖 Documentation
-
-For full technical details, refer to the [doc/](doc/) directory:
-- [Architecture & HGR](doc/ARCHITECTURE.md)
-- [API Reference](doc/API_REFERENCE.md)
-- [Tool Engine & 32 Tools](doc/TOOL_ENGINE.md)
-
-## 🛡️ License
-Private project for RokoOfficial.
 
 ---
-**Developed by ROKO** 🚀
+
+## 🛠️ Instalação Rápida
+
+Para implantar o OpenBot em seu ambiente Linux, utilize o script de instalação automatizada:
+
+```bash
+cd BOT
+chmod +x install.sh
+./install.sh
+```
+
+### Pré-requisitos
+- Python 3.10+
+- Chave de API do GROQ (`GROQ_API_KEY`)
+- Dependências listadas no `install.sh`
+
+---
+
+## 📄 Licença
+
+Este projeto está licenciado sob a **Licença MIT**. Sinta-se à vontade para usar, modificar e distribuir, desde que mantenha os créditos originais ao **OpenBot Project** e as contribuições de **RokoOfficial**.
+
+---
+*Desenvolvido com foco em autonomia, velocidade e inteligência.*
