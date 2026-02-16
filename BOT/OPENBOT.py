@@ -1,6 +1,7 @@
 # ============================================================
 # OPENBOT v3.0 - ARQUITETURA PLUG & PLAY COM TOOL USE
-# Core API com GROQ (openai==0.28.1) e 32 Ferramentas
+# Core API com GROQ (openai==0.28.1) e 40 Ferramentas (32 + 8 Memória)
+# Diretório base: /sdcard/Download/acoude_ide/openbot_v2
 # ============================================================
 
 import os
@@ -22,6 +23,14 @@ from dataclasses import dataclass
 from enum import Enum
 
 from quart import Quart, request, jsonify, Response
+
+# ============================================================
+# DIREtóRIO BASE (SDCARD)
+# ============================================================
+
+BASE_DIR = "/sdcard/Download/acoude_ide/WORKS"
+os.makedirs(BASE_DIR, exist_ok=True)  # Garante que o diretório exista
+os.makedirs(os.path.join(BASE_DIR, "exports"), exist_ok=True)  # Para exports de memória
 
 # ============================================================
 # HGR MEMORY - 3 NÍVEIS
@@ -57,7 +66,7 @@ except ImportError as e:
 
 import openai
 
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "").strip()
+GROQ_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "").strip()
 
 if not GROQ_API_KEY:
     print("⚠️ GROQ_API_KEY não definida!")
@@ -65,8 +74,8 @@ else:
     print(f"✅ GROQ_API_KEY carregada")
 
 openai.api_key = GROQ_API_KEY
-openai.api_base = "https://api.groq.com/openai/v1"
-MODEL = "llama-3.1-8b-instant"
+openai.api_base = "https://api.deepseek.com/v1" 
+MODEL = "deepseek-chat"
 
 # ============================================================
 # APP INIT
@@ -75,36 +84,36 @@ MODEL = "llama-3.1-8b-instant"
 app = Quart(__name__)
 
 # Configurações
-MAX_TOOL_EXECUTIONS = 32
-MAX_AGENT_STEPS = 15
-TOOL_TIMEOUT = 30
+MAX_TOOL_EXECUTIONS = 40  # Aumentado para comportar novas tools
+MAX_AGENT_STEPS = 16
+TOOL_TIMEOUT = 900
 
 # Pools
 thread_pool = ThreadPoolExecutor(max_workers=16)
-process_pool = ProcessPoolExecutor(max_workers=4)
+process_pool = ProcessPoolExecutor(max_workers=8)
 
-# Logging
+# Logging (agora dentro do BASE_DIR)
 logging.basicConfig(
-    filename="openbot_v3.log",
+    filename=os.path.join(BASE_DIR, "openbot_v3.log"),
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s"
 )
 
 # ============================================================
-# AUTH INIT
+# AUTH INIT (bancos dentro do BASE_DIR)
 # ============================================================
 
-user_db = UserDatabase("users.db")
+user_db = UserDatabase(os.path.join(BASE_DIR, "users.db"))
 auth_manager = AuthManager(user_db)
 app.config["auth_manager"] = auth_manager
 print("✅ Sistema JWT inicializado.")
 
 # ============================================================
-# MEMORY CONFIG
+# MEMORY CONFIG (banco dentro do BASE_DIR)
 # ============================================================
 
 mem_config = MemoryConfig(
-    long_term_db="agent_memory_v3.db",
+    long_term_db=os.path.join(BASE_DIR, "agent_memory_v3.db"),
     short_term_size=20,
     importance_threshold=0.5
 )
@@ -113,7 +122,718 @@ memory_agent = MemoryEnhancedAgent(mem_config)
 print("✅ Memória HGR configurada.")
 
 # ============================================================
-# TOOL SYSTEM - 32 FERRAMENTAS PODEROSAS
+# MEMORYSQL - SISTEMA DE MEMÓRIA PERSISTENTE
+# ============================================================
+
+class MemorySQL:
+    """Classe para manipulação da memória HGR persistente"""
+    
+    def __init__(self, db_path: str = None):
+        self.db_path = db_path or os.path.join(BASE_DIR, "agent_memory_v3.db")
+        self._init_db()
+    
+    def _init_db(self):
+        """Inicializa o banco se necessário"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            # Tabela principal de memórias
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS memories (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    key TEXT NOT NULL,
+                    value TEXT NOT NULL,
+                    importance REAL DEFAULT 0.0,
+                    access_count INTEGER DEFAULT 1,
+                    last_accessed TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    category TEXT DEFAULT 'general',
+                    tags TEXT,
+                    expiry TIMESTAMP,
+                    UNIQUE(user_id, key)
+                )
+            """)
+            
+            # Índices para performance
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_user ON memories(user_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_importance ON memories(importance DESC)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_category ON memories(category)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_expiry ON memories(expiry)")
+            
+            # Tabela de histórico de acessos
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS memory_access_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    memory_id INTEGER,
+                    user_id TEXT,
+                    accessed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    context TEXT,
+                    FOREIGN KEY(memory_id) REFERENCES memories(id)
+                )
+            """)
+            
+            conn.commit()
+    
+    # ============================================================
+    # TOOL 1: memory_store - Armazenar memória
+    # ============================================================
+    
+    async def memory_store(self, 
+                          user_id: str, 
+                          key: str, 
+                          value: Any, 
+                          importance: float = 0.5,
+                          category: str = "general",
+                          tags: List[str] = None,
+                          expiry_days: Optional[int] = None) -> Dict:
+        """
+        Armazena uma memória no banco HGR
+        """
+        try:
+            # Converte value para JSON se necessário
+            if not isinstance(value, str):
+                value = json.dumps(value, ensure_ascii=False)
+            
+            # Calcula expiry se fornecido
+            expiry = None
+            if expiry_days:
+                expiry = (datetime.now() + timedelta(days=expiry_days)).isoformat()
+            
+            # Tags como JSON
+            tags_json = json.dumps(tags) if tags else None
+            
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # UPSERT: insere ou atualiza
+                cursor.execute("""
+                    INSERT INTO memories 
+                    (user_id, key, value, importance, category, tags, expiry, last_accessed)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(user_id, key) DO UPDATE SET
+                        value = excluded.value,
+                        importance = excluded.importance,
+                        category = excluded.category,
+                        tags = excluded.tags,
+                        expiry = excluded.expiry,
+                        last_accessed = CURRENT_TIMESTAMP,
+                        access_count = access_count + 1
+                """, (user_id, key, value, importance, category, tags_json, expiry, datetime.now().isoformat()))
+                
+                conn.commit()
+                
+                return {
+                    "status": "success",
+                    "operation": "store",
+                    "user_id": user_id,
+                    "key": key,
+                    "importance": importance,
+                    "expiry": expiry
+                }
+                
+        except Exception as e:
+            return {
+                "status": "error",
+                "operation": "store",
+                "error": str(e)
+            }
+    
+    # ============================================================
+    # TOOL 2: memory_recall - Recuperar memória
+    # ============================================================
+    
+    async def memory_recall(self, 
+                           user_id: str, 
+                           key: str = None,
+                           category: str = None,
+                           tags: List[str] = None,
+                           min_importance: float = 0.0,
+                           limit: int = 10,
+                           include_expired: bool = False) -> Dict:
+        """
+        Recupera memórias do banco HGR
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                
+                # Constrói query dinamicamente
+                query = "SELECT * FROM memories WHERE user_id = ?"
+                params = [user_id]
+                
+                if key:
+                    query += " AND key = ?"
+                    params.append(key)
+                
+                if category:
+                    query += " AND category = ?"
+                    params.append(category)
+                
+                if tags:
+                    # Busca por tags (JSON contains)
+                    placeholders = ','.join(['?'] * len(tags))
+                    query += f" AND EXISTS (SELECT 1 FROM json_each(tags) WHERE json_each.value IN ({placeholders}))"
+                    params.extend(tags)
+                
+                query += " AND importance >= ?"
+                params.append(min_importance)
+                
+                if not include_expired:
+                    query += " AND (expiry IS NULL OR expiry > datetime('now'))"
+                
+                query += " ORDER BY importance DESC, last_accessed DESC LIMIT ?"
+                params.append(limit)
+                
+                cursor.execute(query, params)
+                rows = cursor.fetchall()
+                
+                # Converte para lista de dicionários
+                memories = []
+                for row in rows:
+                    memory = dict(row)
+                    # Parse tags de volta pra lista
+                    if memory['tags']:
+                        memory['tags'] = json.loads(memory['tags'])
+                    
+                    # Tenta parse do value como JSON
+                    try:
+                        memory['value'] = json.loads(memory['value'])
+                    except:
+                        pass  # Mantém como string
+                    
+                    memories.append(memory)
+                    
+                    # Atualiza último acesso
+                    cursor.execute("""
+                        UPDATE memories SET last_accessed = ? 
+                        WHERE id = ?
+                    """, (datetime.now().isoformat(), memory['id']))
+                    
+                    # Log de acesso
+                    cursor.execute("""
+                        INSERT INTO memory_access_log (memory_id, user_id, context)
+                        VALUES (?, ?, ?)
+                    """, (memory['id'], user_id, f"recall: {key if key else 'search'}"))
+                
+                conn.commit()
+                
+                return {
+                    "status": "success",
+                    "operation": "recall",
+                    "user_id": user_id,
+                    "count": len(memories),
+                    "memories": memories
+                }
+                
+        except Exception as e:
+            return {
+                "status": "error",
+                "operation": "recall",
+                "error": str(e)
+            }
+    
+    # ============================================================
+    # TOOL 3: memory_delete - Deletar memória
+    # ============================================================
+    
+    async def memory_delete(self, 
+                           user_id: str, 
+                           key: str = None,
+                           category: str = None,
+                           memory_id: int = None,
+                           delete_all: bool = False) -> Dict:
+        """
+        Deleta memórias do banco HGR
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                if delete_all:
+                    cursor.execute("DELETE FROM memories WHERE user_id = ?", (user_id,))
+                    deleted = cursor.rowcount
+                    message = f"Todas as {deleted} memórias do usuário {user_id} foram deletadas"
+                
+                elif memory_id:
+                    cursor.execute("DELETE FROM memories WHERE id = ? AND user_id = ?", (memory_id, user_id))
+                    deleted = cursor.rowcount
+                    message = f"Memória ID {memory_id} deletada" if deleted else "Memória não encontrada"
+                
+                elif key:
+                    cursor.execute("DELETE FROM memories WHERE user_id = ? AND key = ?", (user_id, key))
+                    deleted = cursor.rowcount
+                    message = f"Memória '{key}' deletada" if deleted else "Chave não encontrada"
+                
+                elif category:
+                    cursor.execute("DELETE FROM memories WHERE user_id = ? AND category = ?", (user_id, category))
+                    deleted = cursor.rowcount
+                    message = f"{deleted} memórias da categoria '{category}' deletadas"
+                
+                else:
+                    return {
+                        "status": "error",
+                        "operation": "delete",
+                        "error": "Especifique o que deletar (key, category, memory_id ou delete_all)"
+                    }
+                
+                conn.commit()
+                
+                return {
+                    "status": "success",
+                    "operation": "delete",
+                    "user_id": user_id,
+                    "deleted_count": deleted,
+                    "message": message
+                }
+                
+        except Exception as e:
+            return {
+                "status": "error",
+                "operation": "delete",
+                "error": str(e)
+            }
+    
+    # ============================================================
+    # TOOL 4: memory_update - Atualizar memória existente
+    # ============================================================
+    
+    async def memory_update(self,
+                           user_id: str,
+                           key: str,
+                           value: Any = None,
+                           importance: float = None,
+                           category: str = None,
+                           tags: List[str] = None,
+                           increment_access: bool = True) -> Dict:
+        """
+        Atualiza campos específicos de uma memória
+        """
+        try:
+            updates = []
+            params = []
+            
+            if value is not None:
+                if not isinstance(value, str):
+                    value = json.dumps(value, ensure_ascii=False)
+                updates.append("value = ?")
+                params.append(value)
+            
+            if importance is not None:
+                updates.append("importance = ?")
+                params.append(importance)
+            
+            if category is not None:
+                updates.append("category = ?")
+                params.append(category)
+            
+            if tags is not None:
+                updates.append("tags = ?")
+                params.append(json.dumps(tags))
+            
+            if increment_access:
+                updates.append("access_count = access_count + 1")
+            
+            updates.append("last_accessed = ?")
+            params.append(datetime.now().isoformat())
+            
+            if not updates:
+                return {
+                    "status": "error",
+                    "operation": "update",
+                    "error": "Nenhum campo para atualizar"
+                }
+            
+            params.extend([user_id, key])
+            
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                query = f"""
+                    UPDATE memories 
+                    SET {', '.join(updates)}
+                    WHERE user_id = ? AND key = ?
+                """
+                
+                cursor.execute(query, params)
+                updated = cursor.rowcount
+                conn.commit()
+                
+                return {
+                    "status": "success",
+                    "operation": "update",
+                    "user_id": user_id,
+                    "key": key,
+                    "updated": bool(updated),
+                    "fields_updated": len(updates) - (2 if increment_access else 1)
+                }
+                
+        except Exception as e:
+            return {
+                "status": "error",
+                "operation": "update",
+                "error": str(e)
+            }
+    
+    # ============================================================
+    # TOOL 5: memory_stats - Estatísticas da memória
+    # ============================================================
+    
+    async def memory_stats(self, user_id: str = None) -> Dict:
+        """
+        Retorna estatísticas do sistema de memória
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                if user_id:
+                    cursor.execute("""
+                        SELECT 
+                            COUNT(*) as total,
+                            AVG(importance) as avg_importance,
+                            SUM(access_count) as total_accesses,
+                            COUNT(DISTINCT category) as categories,
+                            MAX(importance) as max_importance,
+                            MIN(importance) as min_importance
+                        FROM memories 
+                        WHERE user_id = ?
+                    """, (user_id,))
+                    
+                    row = cursor.fetchone()
+                    
+                    cursor.execute("""
+                        SELECT key, importance, access_count 
+                        FROM memories 
+                        WHERE user_id = ? 
+                        ORDER BY importance DESC 
+                        LIMIT 5
+                    """, (user_id,))
+                    top_memories = [{"key": r[0], "importance": r[1], "accesses": r[2]} for r in cursor.fetchall()]
+                    
+                    cursor.execute("""
+                        SELECT category, COUNT(*) 
+                        FROM memories 
+                        WHERE user_id = ? 
+                        GROUP BY category
+                    """, (user_id,))
+                    categories = dict(cursor.fetchall())
+                    
+                    return {
+                        "status": "success",
+                        "operation": "stats",
+                        "user_id": user_id,
+                        "stats": {
+                            "total_memories": row[0] if row else 0,
+                            "avg_importance": round(row[1], 2) if row and row[1] else 0,
+                            "total_accesses": row[2] if row else 0,
+                            "unique_categories": row[3] if row else 0,
+                            "importance_range": {
+                                "max": row[4] if row else 0,
+                                "min": row[5] if row else 0
+                            },
+                            "top_memories": top_memories,
+                            "categories": categories
+                        }
+                    }
+                    
+                else:
+                    cursor.execute("""
+                        SELECT 
+                            COUNT(*) as total_memories,
+                            COUNT(DISTINCT user_id) as total_users,
+                            AVG(importance) as global_avg_importance,
+                            SUM(access_count) as global_accesses
+                        FROM memories
+                    """)
+                    
+                    row = cursor.fetchone()
+                    
+                    cursor.execute("""
+                        SELECT user_id, COUNT(*) as count 
+                        FROM memories 
+                        GROUP BY user_id 
+                        ORDER BY count DESC 
+                        LIMIT 5
+                    """)
+                    top_users = [{"user": r[0], "memories": r[1]} for r in cursor.fetchall()]
+                    
+                    return {
+                        "status": "success",
+                        "operation": "stats",
+                        "global": True,
+                        "stats": {
+                            "total_memories": row[0] if row else 0,
+                            "total_users": row[1] if row else 0,
+                            "global_avg_importance": round(row[2], 2) if row and row[2] else 0,
+                            "global_accesses": row[3] if row else 0,
+                            "most_active_users": top_users
+                        }
+                    }
+                    
+        except Exception as e:
+            return {
+                "status": "error",
+                "operation": "stats",
+                "error": str(e)
+            }
+    
+    # ============================================================
+    # TOOL 6: memory_search - Busca semântica
+    # ============================================================
+    
+    async def memory_search(self, 
+                           user_id: str,
+                           search_term: str,
+                           in_values: bool = True,
+                           in_keys: bool = True,
+                           min_importance: float = 0.0) -> Dict:
+        """
+        Busca texto nas memórias
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                
+                conditions = []
+                params = [user_id, f"%{search_term}%"]
+                
+                if in_keys:
+                    conditions.append("key LIKE ?")
+                
+                if in_values:
+                    conditions.append("value LIKE ?")
+                    params.append(f"%{search_term}%")
+                
+                if not conditions:
+                    return {
+                        "status": "error",
+                        "operation": "search",
+                        "error": "Especifique onde buscar (in_keys/in_values)"
+                    }
+                
+                query = f"""
+                    SELECT * FROM memories 
+                    WHERE user_id = ? 
+                    AND ({' OR '.join(conditions)})
+                    AND importance >= ?
+                    ORDER BY importance DESC, last_accessed DESC
+                """
+                params.append(min_importance)
+                
+                cursor.execute(query, params)
+                rows = cursor.fetchall()
+                
+                results = []
+                for row in rows:
+                    memory = dict(row)
+                    if memory['tags']:
+                        memory['tags'] = json.loads(memory['tags'])
+                    try:
+                        memory['value'] = json.loads(memory['value'])
+                    except:
+                        pass
+                    results.append(memory)
+                
+                return {
+                    "status": "success",
+                    "operation": "search",
+                    "user_id": user_id,
+                    "search_term": search_term,
+                    "count": len(results),
+                    "results": results
+                }
+                
+        except Exception as e:
+            return {
+                "status": "error",
+                "operation": "search",
+                "error": str(e)
+            }
+    
+    # ============================================================
+    # TOOL 7: memory_cleanup - Limpeza automática
+    # ============================================================
+    
+    async def memory_cleanup(self, 
+                            user_id: str = None,
+                            older_than_days: int = 30,
+                            importance_threshold: float = 0.2,
+                            dry_run: bool = False) -> Dict:
+        """
+        Limpa memórias antigas e de baixa importância
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                query = """
+                    SELECT id, user_id, key, importance, last_accessed
+                    FROM memories 
+                    WHERE last_accessed < datetime('now', ?)
+                    AND importance < ?
+                """
+                params = [f'-{older_than_days} days', importance_threshold]
+                
+                if user_id:
+                    query += " AND user_id = ?"
+                    params.append(user_id)
+                
+                cursor.execute(query, params)
+                to_delete = cursor.fetchall()
+                
+                if dry_run:
+                    return {
+                        "status": "success",
+                        "operation": "cleanup",
+                        "dry_run": True,
+                        "would_delete": len(to_delete),
+                        "memories": [
+                            {
+                                "id": r[0],
+                                "user_id": r[1],
+                                "key": r[2],
+                                "importance": r[3],
+                                "last_accessed": r[4]
+                            }
+                            for r in to_delete
+                        ]
+                    }
+                
+                deleted_ids = [r[0] for r in to_delete]
+                if deleted_ids:
+                    cursor.execute(f"""
+                        DELETE FROM memories 
+                        WHERE id IN ({','.join(['?'] * len(deleted_ids))})
+                    """, deleted_ids)
+                    
+                    cursor.execute(f"""
+                        DELETE FROM memory_access_log 
+                        WHERE memory_id IN ({','.join(['?'] * len(deleted_ids))})
+                    """, deleted_ids)
+                    
+                    conn.commit()
+                
+                return {
+                    "status": "success",
+                    "operation": "cleanup",
+                    "dry_run": False,
+                    "deleted_count": len(to_delete),
+                    "older_than_days": older_than_days,
+                    "importance_threshold": importance_threshold
+                }
+                
+        except Exception as e:
+            return {
+                "status": "error",
+                "operation": "cleanup",
+                "error": str(e)
+            }
+    
+    # ============================================================
+    # TOOL 8: memory_export - Exportar memórias
+    # ============================================================
+    
+    async def memory_export(self, 
+                           user_id: str,
+                           format: str = "json",
+                           include_stats: bool = True) -> Dict:
+        """
+        Exporta memórias do usuário
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT * FROM memories 
+                    WHERE user_id = ? 
+                    ORDER BY importance DESC
+                """, (user_id,))
+                
+                rows = cursor.fetchall()
+                memories = []
+                
+                for row in rows:
+                    memory = dict(row)
+                    if memory['tags']:
+                        memory['tags'] = json.loads(memory['tags'])
+                    try:
+                        memory['value'] = json.loads(memory['value'])
+                    except:
+                        pass
+                    
+                    cursor.execute("""
+                        SELECT accessed_at, context 
+                        FROM memory_access_log 
+                        WHERE memory_id = ?
+                        ORDER BY accessed_at DESC
+                        LIMIT 10
+                    """, (memory['id'],))
+                    
+                    memory['recent_accesses'] = [
+                        {"accessed_at": r[0], "context": r[1]}
+                        for r in cursor.fetchall()
+                    ]
+                    
+                    memories.append(memory)
+                
+                export_data = {
+                    "user_id": user_id,
+                    "exported_at": datetime.now().isoformat(),
+                    "total_memories": len(memories),
+                    "memories": memories
+                }
+                
+                if include_stats:
+                    cursor.execute("""
+                        SELECT 
+                            AVG(importance) as avg_importance,
+                            SUM(access_count) as total_accesses,
+                            COUNT(DISTINCT category) as unique_categories
+                        FROM memories 
+                        WHERE user_id = ?
+                    """, (user_id,))
+                    
+                    stats = cursor.fetchone()
+                    export_data["stats"] = {
+                        "avg_importance": round(stats[0], 2) if stats[0] else 0,
+                        "total_accesses": stats[1] if stats[1] else 0,
+                        "unique_categories": stats[2] if stats[2] else 0
+                    }
+                
+                filename = f"memory_export_{user_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                filepath = os.path.join(BASE_DIR, "exports", filename)
+                os.makedirs(os.path.dirname(filepath), exist_ok=True)
+                
+                with open(filepath, "w", encoding="utf-8") as f:
+                    json.dump(export_data, f, ensure_ascii=False, indent=2)
+                
+                return {
+                    "status": "success",
+                    "operation": "export",
+                    "user_id": user_id,
+                    "format": format,
+                    "count": len(memories),
+                    "file": filepath,
+                    "data": export_data if format == "json" else None
+                }
+                
+        except Exception as e:
+            return {
+                "status": "error",
+                "operation": "export",
+                "error": str(e)
+            }
+
+# Instância global do MemorySQL
+memory_sql = MemorySQL()
+
+# ============================================================
+# TOOL SYSTEM - 40 FERRAMENTAS (32 + 8 Memória)
 # ============================================================
 
 class ToolCategory(Enum):
@@ -125,6 +845,7 @@ class ToolCategory(Enum):
     SYSTEM = "system"
     CRYPTO = "crypto"
     UTILITY = "utility"
+    MEMORY = "memory"  # Nova categoria
 
 @dataclass
 class Tool:
@@ -133,7 +854,7 @@ class Tool:
     category: ToolCategory
     function: Callable
     requires_sudo: bool = False
-    timeout: int = 30
+    timeout: int = 90
     dangerous: bool = False
 
 class ToolRegistry:
@@ -162,14 +883,13 @@ class ToolRegistry:
         ]
     
     def _register_all_tools(self):
-        """Registra todas as 32 ferramentas"""
+        """Registra todas as 40 ferramentas"""
         
         # ===== PYTHON TOOLS (1-5) =====
         
         async def execute_python(code: str) -> str:
             """Executa código Python arbitrário"""
             try:
-                # Sandbox básico
                 restricted_globals = {
                     '__builtins__': {
                         'print': print,
@@ -195,7 +915,7 @@ class ToolRegistry:
                         'reversed': reversed,
                         'any': any,
                         'all': all,
-                        'open': None  # Bloqueado
+                        'open': None
                     }
                 }
                 
@@ -365,7 +1085,7 @@ class ToolRegistry:
                         processes.append(proc.info)
                     except:
                         pass
-                return json.dumps(processes[:20])  # Limitar a 20
+                return json.dumps(processes[:20])
             except Exception as e:
                 return f"Erro: {str(e)}"
         
@@ -418,23 +1138,26 @@ class ToolRegistry:
         ))
         
         async def http_download(url: str, filename: str = None) -> str:
-            """Download de arquivo via HTTP"""
+            """Download de arquivo via HTTP - salva em BASE_DIR"""
             try:
                 if not filename:
                     filename = url.split('/')[-1] or 'downloaded_file'
                 
+                filename = re.sub(r'[^a-zA-Z0-9_.-]', '_', filename)
+                filepath = os.path.join(BASE_DIR, filename)
+                
                 async with aiohttp.ClientSession() as session:
                     async with session.get(url, timeout=TOOL_TIMEOUT) as resp:
                         content = await resp.read()
-                        with open(f"/tmp/{filename}", 'wb') as f:
+                        with open(filepath, 'wb') as f:
                             f.write(content)
-                        return f"Downloaded {len(content)} bytes to /tmp/{filename}"
+                        return f"Downloaded {len(content)} bytes to {filepath}"
             except Exception as e:
                 return f"Erro download: {str(e)}"
         
         self.register(Tool(
             name="http_download",
-            description="Download de arquivos via HTTP",
+            description="Download de arquivos via HTTP (salva em BASE_DIR)",
             category=ToolCategory.NETWORK,
             function=http_download
         ))
@@ -482,7 +1205,7 @@ class ToolRegistry:
                 port_list = [int(p) for p in ports.split(',')]
                 open_ports = []
                 
-                for port in port_list[:10]:  # Limitar a 10 portas
+                for port in port_list[:10]:
                     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     sock.settimeout(1)
                     result = sock.connect_ex((host, port))
@@ -523,32 +1246,38 @@ class ToolRegistry:
         
         # ===== FILESYSTEM TOOLS (17-21) =====
         
+        def is_path_allowed(path: str) -> bool:
+            abs_path = os.path.abspath(path)
+            return abs_path.startswith(BASE_DIR)
+        
         async def file_read(path: str) -> str:
-            """Lê conteúdo de arquivo"""
+            """Lê conteúdo de arquivo (apenas dentro de BASE_DIR)"""
             try:
-                if not path.startswith('/tmp/'):
-                    return "Acesso negado: apenas /tmp/ é permitido"
+                if not is_path_allowed(path):
+                    return f"Acesso negado: apenas dentro de {BASE_DIR} é permitido"
                 
-                with open(path, 'r') as f:
+                with open(path, 'r', encoding='utf-8') as f:
                     content = f.read()
-                return content[:2000]  # Limitar tamanho
+                return content[:2000]
             except Exception as e:
                 return f"Erro leitura: {str(e)}"
         
         self.register(Tool(
             name="file_read",
-            description="Lê arquivo (apenas /tmp/)",
+            description=f"Lê arquivo (apenas dentro de {BASE_DIR})",
             category=ToolCategory.FILESYSTEM,
             function=file_read
         ))
         
         async def file_write(path: str, content: str) -> str:
-            """Escreve conteúdo em arquivo"""
+            """Escreve conteúdo em arquivo (apenas dentro de BASE_DIR)"""
             try:
-                if not path.startswith('/tmp/'):
-                    return "Acesso negado: apenas /tmp/ é permitido"
+                if not is_path_allowed(path):
+                    return f"Acesso negado: apenas dentro de {BASE_DIR} é permitido"
                 
-                with open(path, 'w') as f:
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                
+                with open(path, 'w', encoding='utf-8') as f:
                     f.write(content)
                 return f"Arquivo {path} escrito com sucesso"
             except Exception as e:
@@ -556,31 +1285,37 @@ class ToolRegistry:
         
         self.register(Tool(
             name="file_write",
-            description="Escreve em arquivo (apenas /tmp/)",
+            description=f"Escreve em arquivo (apenas dentro de {BASE_DIR})",
             category=ToolCategory.FILESYSTEM,
             function=file_write
         ))
         
-        async def file_list(path: str = '/tmp') -> str:
-            """Lista arquivos em diretório"""
+        async def file_list(path: str = None) -> str:
+            """Lista arquivos em diretório (padrão: BASE_DIR)"""
             try:
+                if path is None:
+                    path = BASE_DIR
+                
+                if not is_path_allowed(path):
+                    return f"Acesso negado: apenas dentro de {BASE_DIR} é permitido"
+                
                 files = os.listdir(path)
-                return json.dumps(files[:50])  # Limitar a 50
+                return json.dumps(files[:50])
             except Exception as e:
                 return f"Erro listagem: {str(e)}"
         
         self.register(Tool(
             name="file_list",
-            description="Lista arquivos em diretório",
+            description=f"Lista arquivos em diretório (padrão: {BASE_DIR})",
             category=ToolCategory.FILESYSTEM,
             function=file_list
         ))
         
         async def file_delete(path: str) -> str:
-            """Deleta arquivo"""
+            """Deleta arquivo (apenas dentro de BASE_DIR)"""
             try:
-                if not path.startswith('/tmp/'):
-                    return "Acesso negado: apenas /tmp/ é permitido"
+                if not is_path_allowed(path):
+                    return f"Acesso negado: apenas dentro de {BASE_DIR} é permitido"
                 
                 os.remove(path)
                 return f"Arquivo {path} deletado"
@@ -589,7 +1324,7 @@ class ToolRegistry:
         
         self.register(Tool(
             name="file_delete",
-            description="Deleta arquivo (apenas /tmp/)",
+            description=f"Deleta arquivo (apenas dentro de {BASE_DIR})",
             category=ToolCategory.FILESYSTEM,
             function=file_delete,
             dangerous=True
@@ -598,6 +1333,9 @@ class ToolRegistry:
         async def file_info(path: str) -> str:
             """Informações detalhadas de arquivo"""
             try:
+                if not is_path_allowed(path):
+                    return f"Acesso negado: apenas dentro de {BASE_DIR} é permitido"
+                
                 stat = os.stat(path)
                 info = {
                     "size": stat.st_size,
@@ -672,10 +1410,10 @@ class ToolRegistry:
         ))
         
         async def data_sqlite_query(db_path: str, query: str) -> str:
-            """Executa query SQLite em banco"""
+            """Executa query SQLite em banco (apenas dentro de BASE_DIR)"""
             try:
-                if not db_path.startswith('/tmp/'):
-                    return "Acesso negado: apenas /tmp/ é permitido"
+                if not db_path.startswith(BASE_DIR):
+                    return f"Acesso negado: apenas dentro de {BASE_DIR} é permitido"
                 
                 conn = sqlite3.connect(db_path)
                 cursor = conn.cursor()
@@ -696,7 +1434,7 @@ class ToolRegistry:
         
         self.register(Tool(
             name="data_sqlite_query",
-            description="Executa query SQLite em banco",
+            description=f"Executa query SQLite em banco (apenas dentro de {BASE_DIR})",
             category=ToolCategory.DATA,
             function=data_sqlite_query
         ))
@@ -715,7 +1453,6 @@ class ToolRegistry:
                     "memory": psutil.virtual_memory()._asdict(),
                     "disk": psutil.disk_usage('/')._asdict()
                 }
-                # Converter bytes para MB/GB legível
                 for k in ['memory', 'disk']:
                     if k in info:
                         for sk in ['total', 'available', 'used', 'free']:
@@ -808,7 +1545,6 @@ class ToolRegistry:
         async def util_calc(expression: str) -> str:
             """Calculadora simples"""
             try:
-                # Avaliação segura (apenas expressões matemáticas)
                 allowed_chars = set("0123456789+-*/(). ")
                 if not all(c in allowed_chars for c in expression):
                     return "Expressão contém caracteres não permitidos"
@@ -863,6 +1599,132 @@ class ToolRegistry:
             category=ToolCategory.UTILITY,
             function=util_base64_decode
         ))
+        
+        # ===== MEMORY TOOLS (33-40) =====
+        
+        async def memory_store(user_id: str, key: str, value: Any, 
+                               importance: float = 0.5, category: str = "general",
+                               tags: List[str] = None, expiry_days: int = None) -> str:
+            """Armazena uma memória persistente"""
+            result = await memory_sql.memory_store(
+                user_id, key, value, importance, category, tags, expiry_days
+            )
+            return json.dumps(result, ensure_ascii=False)
+        
+        self.register(Tool(
+            name="memory_store",
+            description="Armazena uma memória persistente. Args: user_id, key, value, [importance=0.5], [category=general], [tags], [expiry_days]",
+            category=ToolCategory.MEMORY,
+            function=memory_store
+        ))
+        
+        async def memory_recall(user_id: str, key: str = None, category: str = None,
+                                tags: List[str] = None, min_importance: float = 0.0,
+                                limit: int = 10, include_expired: bool = False) -> str:
+            """Recupera memórias do banco HGR"""
+            result = await memory_sql.memory_recall(
+                user_id, key, category, tags, min_importance, limit, include_expired
+            )
+            return json.dumps(result, ensure_ascii=False)
+        
+        self.register(Tool(
+            name="memory_recall",
+            description="Recupera memórias. Args: user_id, [key], [category], [tags], [min_importance=0.0], [limit=10], [include_expired=false]",
+            category=ToolCategory.MEMORY,
+            function=memory_recall
+        ))
+        
+        async def memory_delete(user_id: str, key: str = None, category: str = None,
+                                memory_id: int = None, delete_all: bool = False) -> str:
+            """Deleta memórias do banco HGR"""
+            result = await memory_sql.memory_delete(
+                user_id, key, category, memory_id, delete_all
+            )
+            return json.dumps(result, ensure_ascii=False)
+        
+        self.register(Tool(
+            name="memory_delete",
+            description="Deleta memórias. Args: user_id, [key], [category], [memory_id], [delete_all=false] - CUIDADO!",
+            category=ToolCategory.MEMORY,
+            function=memory_delete,
+            dangerous=True
+        ))
+        
+        async def memory_update(user_id: str, key: str, value: Any = None,
+                                importance: float = None, category: str = None,
+                                tags: List[str] = None) -> str:
+            """Atualiza campos específicos de uma memória"""
+            result = await memory_sql.memory_update(
+                user_id, key, value, importance, category, tags
+            )
+            return json.dumps(result, ensure_ascii=False)
+        
+        self.register(Tool(
+            name="memory_update",
+            description="Atualiza memória existente. Args: user_id, key, [value], [importance], [category], [tags]",
+            category=ToolCategory.MEMORY,
+            function=memory_update
+        ))
+        
+        async def memory_stats(user_id: str = None) -> str:
+            """Retorna estatísticas do sistema de memória"""
+            result = await memory_sql.memory_stats(user_id)
+            return json.dumps(result, ensure_ascii=False)
+        
+        self.register(Tool(
+            name="memory_stats",
+            description="Estatísticas da memória. Args: [user_id] - se omitido, estatísticas globais",
+            category=ToolCategory.MEMORY,
+            function=memory_stats
+        ))
+        
+        async def memory_search(user_id: str, search_term: str,
+                                in_values: bool = True, in_keys: bool = True,
+                                min_importance: float = 0.0) -> str:
+            """Busca texto nas memórias"""
+            result = await memory_sql.memory_search(
+                user_id, search_term, in_values, in_keys, min_importance
+            )
+            return json.dumps(result, ensure_ascii=False)
+        
+        self.register(Tool(
+            name="memory_search",
+            description="Busca texto nas memórias. Args: user_id, search_term, [in_values=true], [in_keys=true], [min_importance=0.0]",
+            category=ToolCategory.MEMORY,
+            function=memory_search
+        ))
+        
+        async def memory_cleanup(user_id: str = None, older_than_days: int = 30,
+                                  importance_threshold: float = 0.2,
+                                  dry_run: bool = False) -> str:
+            """Limpa memórias antigas e de baixa importância"""
+            result = await memory_sql.memory_cleanup(
+                user_id, older_than_days, importance_threshold, dry_run
+            )
+            return json.dumps(result, ensure_ascii=False)
+        
+        self.register(Tool(
+            name="memory_cleanup",
+            description="Limpa memórias antigas. Args: [user_id], [older_than_days=30], [importance_threshold=0.2], [dry_run=false]",
+            category=ToolCategory.MEMORY,
+            function=memory_cleanup,
+            dangerous=True
+        ))
+        
+        async def memory_export(user_id: str, format: str = "json",
+                                include_stats: bool = True) -> str:
+            """Exporta memórias do usuário"""
+            result = await memory_sql.memory_export(
+                user_id, format, include_stats
+            )
+            return json.dumps(result, ensure_ascii=False)
+        
+        self.register(Tool(
+            name="memory_export",
+            description="Exporta memórias. Args: user_id, [format=json], [include_stats=true]",
+            category=ToolCategory.MEMORY,
+            function=memory_export
+        ))
 
 # ============================================================
 # TOOL EXECUTION ENGINE
@@ -887,7 +1749,6 @@ class ToolExecutionEngine:
         
         start_time = time.time()
         
-        # Verificar cache
         cache_key = self.get_cache_key(tool_name, *args, **kwargs)
         if cache_key in self.cache:
             cache_time = self.cache_ttl.get(cache_key)
@@ -908,7 +1769,6 @@ class ToolExecutionEngine:
             }
         
         try:
-            # Executar ferramenta
             if asyncio.iscoroutinefunction(tool.function):
                 result = await tool.function(*args, **kwargs)
             else:
@@ -918,12 +1778,10 @@ class ToolExecutionEngine:
                     *args, **kwargs
                 )
             
-            # Guardar em cache (apenas para resultados não-dangereos)
             if not tool.dangerous:
                 self.cache[cache_key] = result
                 self.cache_ttl[cache_key] = datetime.now() + timedelta(minutes=5)
             
-            # Registrar histórico
             if user_id not in self.execution_history:
                 self.execution_history[user_id] = []
             
@@ -935,7 +1793,6 @@ class ToolExecutionEngine:
                 "timestamp": datetime.now().isoformat()
             })
             
-            # Manter apenas últimos 100
             self.execution_history[user_id] = self.execution_history[user_id][-100:]
             
             return {
@@ -969,16 +1826,30 @@ def get_resource_usage():
 # AGENT - WITH TOOL USE
 # ============================================================
 
-SYSTEM_PROMPT = """Você é o OPENBOT v3.0, um assistente avançado com 32 ferramentas disponíveis.
+SYSTEM_PROMPT = """Você é o OPENBOT v3.0, um assistente avançado com 40 ferramentas disponíveis (32 base + 8 de memória).
 
 CAPACIDADES PRINCIPAIS:
 - Raciocínio estruturado e execução de tarefas complexas
 - Uso de ferramentas para Python, Shell, Network, Filesystem
 - Memória persistente de 3 níveis (curto/longo prazo + relevância)
 - Execução segura em ambiente isolado
+- Diretório base de trabalho: {base_dir}
 
 FERRAMENTAS DISPONÍVEIS:
 {tools_description}
+
+MEMÓRIA PERSISTENTE:
+Você tem acesso a 8 ferramentas dedicadas de memória:
+- memory_store: Armazena informações importantes
+- memory_recall: Recupera memórias salvas
+- memory_search: Busca texto nas memórias
+- memory_update: Atualiza memórias existentes
+- memory_delete: Remove memórias
+- memory_stats: Estatísticas da memória
+- memory_cleanup: Limpa memórias antigas
+- memory_export: Exporta memórias
+
+Use estas ferramentas para lembrar informações entre conversas e personalizar respostas.
 
 FORMATO DE RESPOSTA:
 Para usar ferramentas, responda com:
@@ -1016,17 +1887,15 @@ async def agent_loop(user_id: str, user_query: str):
     Loop principal do agente com ferramentas
     """
     
-    # Gerar descrição das ferramentas para o prompt
     tools_description = "\n".join([
         f"- {t['name']}: {t['description']} (Categoria: {t['category']})"
         for t in tool_registry.list_tools()
     ])
     
-    # Enhanced prompt com memória
     enhanced_prompt = memory_agent.get_enhanced_system_prompt(
         user_id, 
         user_query, 
-        SYSTEM_PROMPT.format(tools_description=tools_description)
+        SYSTEM_PROMPT.format(tools_description=tools_description, base_dir=BASE_DIR)
     )
     
     messages = [
@@ -1044,7 +1913,6 @@ async def agent_loop(user_id: str, user_query: str):
         response_text = await async_llm(messages)
         elapsed = round(time.time() - start, 2)
         
-        # Verificar se há chamada de ferramenta
         tool_match = re.search(r'<tool>(.*?)</tool>', response_text, re.DOTALL)
         
         if tool_match:
@@ -1054,7 +1922,6 @@ async def agent_loop(user_id: str, user_query: str):
                 args = tool_call.get("args", [])
                 kwargs = tool_call.get("kwargs", {})
                 
-                # Executar ferramenta
                 tool_result = await tool_engine.execute(
                     tool_name, 
                     user_id,
@@ -1064,14 +1931,12 @@ async def agent_loop(user_id: str, user_query: str):
                 
                 tool_counter += 1
                 
-                # Adicionar resultado à conversa
                 messages.append({"role": "assistant", "content": response_text})
                 messages.append({
                     "role": "system", 
                     "content": f"Resultado da ferramenta {tool_name}: {json.dumps(tool_result, ensure_ascii=False)}"
                 })
                 
-                # Registrar na memória
                 memory_agent.record_step(user_id, user_query, {
                     "step": step,
                     "thought": response_text[:100],
@@ -1079,7 +1944,6 @@ async def agent_loop(user_id: str, user_query: str):
                     "result": tool_result
                 })
                 
-                # Continuar loop para próxima iteração
                 continue
                 
             except json.JSONDecodeError as e:
@@ -1088,7 +1952,6 @@ async def agent_loop(user_id: str, user_query: str):
                 messages.append({"role": "system", "content": error_msg})
                 continue
         
-        # Se não há chamada de ferramenta, é a resposta final
         memory_agent.record_step(user_id, user_query, {
             "steps": step,
             "tools_used": tool_counter,
@@ -1146,11 +2009,12 @@ async def index():
     return jsonify({
         "name": "OPENBOT v3.0",
         "status": "online",
-        "architecture": "Plug & Play com Tool Use",
+        "architecture": "Plug & Play com Tool Use + Memória Persistente",
+        "base_dir": BASE_DIR,
         "layers": {
             "auth": "JWT Authentication",
-            "agent": "Tool-based Reasoning (32 ferramentas)",
-            "memory": "HGR 3 Níveis"
+            "agent": "Tool-based Reasoning (40 ferramentas)",
+            "memory": "HGR 3 Níveis + MemorySQL 8 Tools"
         },
         "model": MODEL,
         "resources": {
@@ -1160,7 +2024,7 @@ async def index():
         "tools": {
             "total": len(tool_registry.list_tools()),
             "categories": [c.value for c in ToolCategory],
-            "list": tool_registry.list_tools()[:10]  # Primeiras 10
+            "list": tool_registry.list_tools()[:10]
         },
         "endpoints": {
             "public": [
@@ -1172,7 +2036,7 @@ async def index():
                 "POST /api/chat/stream",
                 "GET /api/user/profile",
                 "GET /api/tools/list",
-                "GET /api/tools/execute/{name}",
+                "POST /api/tools/execute/{name}",
                 "GET /api/tools/history",
                 "POST /api/auth/logout",
                 "GET /api/admin/stats"
@@ -1218,7 +2082,7 @@ async def tool_history():
     
     return jsonify({
         "status": "success",
-        "history": history[-50:]  # Últimas 50
+        "history": history[-50:]
     })
 
 # ============================================================
@@ -1298,7 +2162,6 @@ async def get_profile():
     """Perfil do usuário"""
     user_data = request.user_data
     
-    # Buscar estatísticas de memória
     try:
         stats = memory_agent.get_stats(user_data['username'])
     except:
@@ -1317,6 +2180,9 @@ async def get_profile():
         ]
     }
     
+    # Estatísticas de memória persistente
+    memory_stats = await memory_sql.memory_stats(user_data['username'])
+    
     return jsonify({
         "status": "success",
         "user": {
@@ -1326,7 +2192,8 @@ async def get_profile():
             "is_admin": user_data.get('is_admin', False)
         },
         "memory_stats": stats,
-        "tool_stats": tool_stats
+        "tool_stats": tool_stats,
+        "persistent_memory": memory_stats.get('stats', {}) if memory_stats['status'] == 'success' else {}
     })
 
 @app.route("/api/chat", methods=["POST"])
@@ -1374,19 +2241,17 @@ async def chat_stream():
 async def admin_stats():
     """Estatísticas do sistema (admin)"""
     
-    # Recursos
     cpu, mem = get_resource_usage()
     
-    # Tamanho dos bancos
     db_sizes = {}
     for db in ["users.db", "agent_memory_v3.db", "openbot_v3.log"]:
         try:
-            size = os.path.getsize(db) / (1024 * 1024)  # MB
+            full_path = os.path.join(BASE_DIR, db)
+            size = os.path.getsize(full_path) / (1024 * 1024)
             db_sizes[db] = f"{size:.2f} MB"
         except:
             db_sizes[db] = "N/A"
     
-    # Estatísticas de ferramentas
     all_executions = []
     for user, history in tool_engine.execution_history.items():
         all_executions.extend(history)
@@ -1396,10 +2261,14 @@ async def admin_stats():
         tool = exec['tool']
         tool_usage[tool] = tool_usage.get(tool, 0) + 1
     
+    # Estatísticas de memória global
+    memory_global = await memory_sql.memory_stats()
+    
     return jsonify({
         "status": "success",
         "system": {
             "model": MODEL,
+            "base_dir": BASE_DIR,
             "resources": {
                 "cpu": f"{cpu}%",
                 "memory": f"{mem}MB"
@@ -1416,7 +2285,8 @@ async def admin_stats():
             "unique_users": len(tool_engine.execution_history),
             "usage": tool_usage,
             "available": len(tool_registry.list_tools())
-        }
+        },
+        "memory": memory_global.get('stats', {}) if memory_global['status'] == 'success' else {}
     })
 
 # ============================================================
@@ -1426,15 +2296,13 @@ async def admin_stats():
 async def cleanup_task():
     """Limpeza periódica"""
     while True:
-        await asyncio.sleep(3600)  # 1 hora
+        await asyncio.sleep(3600)
         
         try:
-            # Limpar tokens
             deleted = cleanup_old_tokens(user_db, days=7)
             if deleted > 0:
                 logging.info(f"Tokens removidos: {deleted}")
             
-            # Limpar cache de ferramentas antigo
             now = datetime.now()
             expired_keys = []
             for key, expiry in tool_engine.cache_ttl.items():
@@ -1450,53 +2318,63 @@ async def cleanup_task():
             if expired_keys:
                 logging.info(f"Cache limpo: {len(expired_keys)} itens")
             
+            # Limpeza automática de memórias antigas (dry_run=True para não deletar)
+            cleanup_result = await memory_sql.memory_cleanup(
+                older_than_days=30,
+                importance_threshold=0.1,
+                dry_run=True
+            )
+            if cleanup_result['status'] == 'success' and cleanup_result.get('would_delete', 0) > 0:
+                logging.info(f"Memórias candidatas a limpeza: {cleanup_result['would_delete']}")
+            
         except Exception as e:
             logging.error(f"Erro na limpeza: {e}")
 
 @app.before_serving
 async def startup():
     """Inicialização"""
-    # Tarefa de limpeza
     asyncio.create_task(cleanup_task())
     
-    # Testar GROQ
     try:
         test = await async_llm([{"role": "user", "content": "teste"}])
         print(f"✅ GROQ conectado: {test[:50]}...")
     except Exception as e:
         print(f"⚠️ GROQ: {e}")
     
-    # Banner
     print("\n" + "="*70)
     print("🚀 OPENBOT v3.0 - ARQUITETURA PLUG & PLAY COM TOOL USE")
     print("="*70)
-    print("📦 CAMADA DE FERRAMENTAS (32):")
+    print(f"📂 DIRETÓRIO BASE: {BASE_DIR}")
+    print("="*70)
+    print("📦 CAMADA DE FERRAMENTAS (40):")
     print("   • Python     (5)  • Shell    (5)  • Network  (6)")
     print("   • Filesystem (5)  • Data     (4)  • System   (3)")
-    print("   • Crypto     (2)  • Utility  (4)")
+    print("   • Crypto     (2)  • Utility  (4)  • Memory   (8)")
     print("-"*70)
     print("🔧 CORE API:")
     print("   • AUTH    - JWT Authentication")
     print("   • AGENT   - Tool-based Reasoning")
-    print("   • MEMORY  - HGR 3 Níveis")
+    print("   • MEMORY  - HGR 3 Níveis + MemorySQL")
     print("   • CACHE   - Tool Result Caching")
     print("-"*70)
-    print("💾 DATABASES:")
+    print("💾 DATABASES (dentro do diretório base):")
     print("   • users.db            - Dados dos usuários")
-    print("   • agent_memory_v3.db  - Memória persistente")
+    print("   • agent_memory_v3.db  - Memória persistente (HGR + MemorySQL)")
+    print("   • openbot_v3.log      - Logs do sistema")
+    print("   • exports/            - Exports de memória")
     print("-"*70)
-    print("⚡ Plug & Play com Tool Use:")
-    print("   • 32 ferramentas integradas")
+    print("⚡ Plug & Play com Tool Use + Memória Persistente:")
+    print("   • 40 ferramentas integradas (32 base + 8 memória)")
     print("   • Cache inteligente (5 min TTL)")
     print("   • Execução segura em sandbox")
     print("   • Histórico por usuário")
+    print("   • Memória persistente com 8 operações")
     print("   • Streaming em tempo real")
     print("="*70)
     print(f"🌐 http://0.0.0.0:5000")
     print(f"🔧 Total de ferramentas: {len(tool_registry.list_tools())}")
     print("="*70)
     
-    # Listar categorias
     for category in ToolCategory:
         tools_in_cat = [t for t in tool_registry.list_tools() if t['category'] == category.value]
         print(f"   {category.value.upper()}: {len(tools_in_cat)} ferramentas")

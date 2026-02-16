@@ -18,7 +18,7 @@ Diferente de sistemas convencionais, o OpenBot utiliza o sistema **HGR Memory**,
 
 ---
 
-## 🛠️ O Arsenal de Ferramentas (32 Ferramentas)
+## 🛠️ O Arsenal de Ferramentas (40 Ferramentas)
 
 O OpenBot vem equipado com um registro central de ferramentas divididas em categorias estratégicas:
 
@@ -49,9 +49,9 @@ A organização do repositório segue padrões modernos de modularidade:
 ```text
 OPENBOT/
 ├── BOT/                # Núcleo do Agente
-│   ├── OpenBot.py      # Script principal e API Quart
+│   ├── OPENBOT.py      # Script principal e API Quart
 │   ├── HGR.py          # Motor de Memória Avançada
-│   ├── auth.py         # Sistema de Autenticação JWT
+│   ├── auth_system.py  # Sistema de Autenticação JWT
 │   ├── config.py       # Configurações globais
 │   └── install.sh      # Script de instalação automatizada
 ├── doc/                # Documentação Técnica Detalhada
