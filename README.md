@@ -4,7 +4,7 @@
 
 Bem-vindo ao **OpenBot v3.1**, uma plataforma de inteligência artificial autônoma e modular, projetada para ser o "canivete suíço" da automação e processamento de dados. Este projeto representa uma evolução significativa na integração entre Modelos de Linguagem de Grande Escala (LLMs) e a execução de ferramentas em tempo real.
 
-> **Nota de Crédito:** Esta versão v3.1 foi desenvolvida e expandida por **Rudjery (RokoOfficial)**, introduzindo a arquitetura HGR Memory de três níveis, 40 ferramentas integradas, suporte multi-provider e autenticação JWT nativa.
+> **Nota de Crédito:** Esta versão v3.1 foi desenvolvida e expandida por ** (RokoOfficial)**, introduzindo a arquitetura HGR Memory de três níveis, 40 ferramentas integradas, suporte multi-provider e autenticação JWT nativa.
 
 ---
 
