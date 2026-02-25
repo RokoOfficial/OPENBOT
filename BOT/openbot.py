@@ -1,7 +1,8 @@
 # ============================================================
-# OPENBOT v3.0 - ARQUITETURA PLUG & PLAY COM TOOL USE
-# Core API com GROQ (openai==0.28.1) e 40 Ferramentas (32 + 8 Memória)
-# Diretório base: /sdcard/Download/acoude_ide/openbot_v2
+# OPENBOT v3.1 - ARQUITETURA PLUG & PLAY COM TOOL USE
+# Multi-Provider: OpenAI (GPT), DeepSeek, Groq (LLaMA)
+# Todos via openai==0.28.1 — só muda api_base + api_key + model
+# Correções: histórico de chat, memória, TTL, role tool_result
 # ============================================================
 
 import os
@@ -25,12 +26,12 @@ from enum import Enum
 from quart import Quart, request, jsonify, Response
 
 # ============================================================
-# DIREtóRIO BASE (SDCARD)
+# DIRETÓRIO BASE — altere conforme seu ambiente
 # ============================================================
 
 BASE_DIR = "/sdcard/Download/acoude_ide/WORKS"
-os.makedirs(BASE_DIR, exist_ok=True)  # Garante que o diretório exista
-os.makedirs(os.path.join(BASE_DIR, "exports"), exist_ok=True)  # Para exports de memória
+os.makedirs(BASE_DIR, exist_ok=True)
+os.makedirs(os.path.join(BASE_DIR, "exports"), exist_ok=True)
 
 # ============================================================
 # HGR MEMORY - 3 NÍVEIS
@@ -61,21 +62,89 @@ except ImportError as e:
     exit(1)
 
 # ============================================================
-# GROQ CONFIG (via openai 0.28.1)
+# MULTI-PROVIDER CONFIG (via openai==0.28.1)
 # ============================================================
 
 import openai
 
-GROQ_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+# ── Providers disponíveis ────────────────────────────────────
+# Altere ACTIVE_PROVIDER ou defina env OPENBOT_PROVIDER para trocar
+# Valores: "openai" | "deepseek" | "groq"
 
-if not GROQ_API_KEY:
-    print("⚠️ GROQ_API_KEY não definida!")
+_PROVIDERS = {
+    "openai": {
+        "api_base":    "https://api.openai.com/v1",
+        "api_key_env": "OPENAI_API_KEY",
+        "default_model": "gpt-4o-mini",
+        "models": ["gpt-4o-mini", "gpt-5.3"],
+        "label": "OpenAI (GPT)"
+    },
+    "deepseek": {
+        "api_base":    "https://api.deepseek.com/v1",
+        "api_key_env": "DEEPSEEK_API_KEY",
+        "default_model": "deepseek-chat",
+        "models": ["deepseek-chat", "deepseek-coder"],
+        "label": "DeepSeek"
+    },
+    "groq": {
+        "api_base":    "https://api.groq.com/openai/v1",
+        "api_key_env": "GROQ_API_KEY",
+        "default_model": "llama-3.1-8b-instant",
+        "models": [
+            "llama-3.1-8b-instant",
+            "llama-3.1-70b-versatile",
+            "llama3-8b-8192",
+            "mixtral-8x7b-32768"
+        ],
+        "label": "Groq (LLaMA / Mixtral)"
+    }
+}
+
+# Provider e modelo ativos
+ACTIVE_PROVIDER_NAME = os.environ.get("OPENBOT_PROVIDER", "deepseek").lower()
+if ACTIVE_PROVIDER_NAME not in _PROVIDERS:
+    print(f"⚠️  Provider '{ACTIVE_PROVIDER_NAME}' inválido. Usando 'deepseek'.")
+    ACTIVE_PROVIDER_NAME = "deepseek"
+
+_P = _PROVIDERS[ACTIVE_PROVIDER_NAME]
+MODEL = os.environ.get("OPENBOT_MODEL", _P["default_model"])
+API_KEY = os.environ.get(_P["api_key_env"], "").strip()
+
+if not API_KEY:
+    print(f"⚠️  {_P['api_key_env']} não definida! Configure a variável de ambiente.")
 else:
-    print(f"✅ GROQ_API_KEY carregada")
+    print(f"✅ Provider  : {_P['label']}")
+    print(f"✅ Modelo    : {MODEL}")
+    print(f"✅ API Key   : carregada")
 
-openai.api_key = GROQ_API_KEY
-openai.api_base = "https://api.deepseek.com/v1" 
-MODEL = "deepseek-chat"
+# Aplica config ao openai
+openai.api_key  = API_KEY
+openai.api_base = _P["api_base"]
+
+def switch_provider(provider_name: str, model: str = None):
+    """
+    Troca provider em runtime sem reiniciar o servidor.
+    Uso via endpoint POST /api/provider/switch
+    """
+    global ACTIVE_PROVIDER_NAME, MODEL, API_KEY
+    
+    if provider_name not in _PROVIDERS:
+        raise ValueError(f"Provider inválido. Disponíveis: {list(_PROVIDERS.keys())}")
+    
+    p = _PROVIDERS[provider_name]
+    api_key = os.environ.get(p["api_key_env"], "").strip()
+    
+    if not api_key:
+        raise ValueError(f"{p['api_key_env']} não está definida no ambiente.")
+    
+    ACTIVE_PROVIDER_NAME = provider_name
+    MODEL                = model or p["default_model"]
+    API_KEY              = api_key
+    openai.api_key       = API_KEY
+    openai.api_base      = p["api_base"]
+    
+    print(f"🔄 Provider: {p['label']} | Modelo: {MODEL}")
+    return {"provider": provider_name, "model": MODEL, "label": p["label"]}
 
 # ============================================================
 # APP INIT
@@ -83,16 +152,13 @@ MODEL = "deepseek-chat"
 
 app = Quart(__name__)
 
-# Configurações
-MAX_TOOL_EXECUTIONS = 40  # Aumentado para comportar novas tools
-MAX_AGENT_STEPS = 16
-TOOL_TIMEOUT = 900
+MAX_TOOL_EXECUTIONS = 40
+MAX_AGENT_STEPS     = 16
+TOOL_TIMEOUT        = 900
 
-# Pools
-thread_pool = ThreadPoolExecutor(max_workers=16)
+thread_pool  = ThreadPoolExecutor(max_workers=16)
 process_pool = ProcessPoolExecutor(max_workers=8)
 
-# Logging (agora dentro do BASE_DIR)
 logging.basicConfig(
     filename=os.path.join(BASE_DIR, "openbot_v3.log"),
     level=logging.INFO,
@@ -100,30 +166,31 @@ logging.basicConfig(
 )
 
 # ============================================================
-# AUTH INIT (bancos dentro do BASE_DIR)
+# AUTH INIT
 # ============================================================
 
-user_db = UserDatabase(os.path.join(BASE_DIR, "users.db"))
+user_db      = UserDatabase(os.path.join(BASE_DIR, "users.db"))
 auth_manager = AuthManager(user_db)
 app.config["auth_manager"] = auth_manager
 print("✅ Sistema JWT inicializado.")
 
 # ============================================================
-# MEMORY CONFIG (banco dentro do BASE_DIR)
+# MEMORY CONFIG — com todos os fixes aplicados
 # ============================================================
 
 mem_config = MemoryConfig(
-    long_term_db=os.path.join(BASE_DIR, "agent_memory_v3.db"),
-    short_term_size=20,
-    importance_threshold=0.5
+    long_term_db        = os.path.join(BASE_DIR, "agent_memory_v3.db"),
+    short_term_size     = 30,       # FIX #4: era 20
+    short_term_ttl      = 3600,     # FIX #4: era 300 (5min) → 1h
+    medium_term_ttl     = 86400,    # FIX #4: era 3600 (1h) → 24h
+    importance_threshold= 0.3,      # FIX #3: era 0.5/0.7 → 0.3
+    min_relevance_score = 0.1,      # FIX #3: era 0.3 → 0.1
+    max_chat_history    = 100,      # FIX #1: novo
+    chat_history_to_llm = 40        # FIX #1: novo
 )
 
 memory_agent = MemoryEnhancedAgent(mem_config)
 print("✅ Memória HGR configurada.")
-
-# ============================================================
-# MEMORYSQL - SISTEMA DE MEMÓRIA PERSISTENTE
-# ============================================================
 
 class MemorySQL:
     """Classe para manipulação da memória HGR persistente"""
@@ -183,7 +250,7 @@ class MemorySQL:
                           user_id: str, 
                           key: str, 
                           value: Any, 
-                          importance: float = 0.5,
+                          importance: float = 0.3,
                           category: str = "general",
                           tags: List[str] = None,
                           expiry_days: Optional[int] = None) -> Dict:
@@ -1809,6 +1876,7 @@ class ToolExecutionEngine:
                 "time": round(time.time() - start_time, 3)
             }
 
+
 # ============================================================
 # RESOURCE MONITOR
 # ============================================================
@@ -1823,36 +1891,32 @@ def get_resource_usage():
         return 0.0, 0.0
 
 # ============================================================
-# AGENT - WITH TOOL USE
+# SYSTEM PROMPT
 # ============================================================
 
-SYSTEM_PROMPT = """Você é o OPENBOT v3.0, um assistente avançado com 40 ferramentas disponíveis (32 base + 8 de memória).
+SYSTEM_PROMPT = """Você é o OPENBOT v3.1, um assistente avançado com 40 ferramentas disponíveis.
 
-CAPACIDADES PRINCIPAIS:
+CAPACIDADES:
 - Raciocínio estruturado e execução de tarefas complexas
-- Uso de ferramentas para Python, Shell, Network, Filesystem
-- Memória persistente de 3 níveis (curto/longo prazo + relevância)
-- Execução segura em ambiente isolado
+- Uso de ferramentas: Python, Shell, Network, Filesystem, Memória
+- Memória persistente de 3 níveis (curto/médio/longo prazo)
 - Diretório base de trabalho: {base_dir}
+- Provider ativo: {provider} | Modelo: {model}
 
 FERRAMENTAS DISPONÍVEIS:
 {tools_description}
 
-MEMÓRIA PERSISTENTE:
-Você tem acesso a 8 ferramentas dedicadas de memória:
-- memory_store: Armazena informações importantes
-- memory_recall: Recupera memórias salvas
-- memory_search: Busca texto nas memórias
-- memory_update: Atualiza memórias existentes
-- memory_delete: Remove memórias
-- memory_stats: Estatísticas da memória
-- memory_cleanup: Limpa memórias antigas
-- memory_export: Exporta memórias
+MEMÓRIA PERSISTENTE (8 ferramentas dedicadas):
+- memory_store   : Armazena informações importantes
+- memory_recall  : Recupera memórias salvas
+- memory_search  : Busca texto nas memórias
+- memory_update  : Atualiza memórias existentes
+- memory_delete  : Remove memórias
+- memory_stats   : Estatísticas da memória
+- memory_cleanup : Limpa memórias antigas
+- memory_export  : Exporta memórias
 
-Use estas ferramentas para lembrar informações entre conversas e personalizar respostas.
-
-FORMATO DE RESPOSTA:
-Para usar ferramentas, responda com:
+FORMATO PARA USAR FERRAMENTAS:
 <tool>
 {{
     "name": "nome_da_ferramenta",
@@ -1861,118 +1925,31 @@ Para usar ferramentas, responda com:
 }}
 </tool>
 
-O resultado da ferramenta será automaticamente processado e você poderá continuar a conversa.
+O resultado da ferramenta será processado automaticamente.
 
 Exemplo:
 Usuário: "Qual o IP do google.com?"
-Agente: <tool>
-{{
-    "name": "dns_lookup",
-    "args": ["google.com"]
-}}
+<tool>
+{{"name": "dns_lookup", "args": ["google.com"]}}
 </tool>
-
-[Resultado da ferramenta: google.com -> 142.250.185.46]
+[Resultado: google.com -> 142.250.185.46]
 O IP do Google é 142.250.185.46.
 
-Seja natural, amigável e eficiente em português.
+Seja natural e amigável. Responda no idioma do usuário.
+Organize respostas com negrito para destaques e quebras de linha.
+Quando não souber, diga que não sabe.
 """
 
-# Inicializar registro de ferramentas
+# Inicializar ferramentas
 tool_registry = ToolRegistry()
-tool_engine = ToolExecutionEngine(tool_registry)
-
-async def agent_loop(user_id: str, user_query: str):
-    """
-    Loop principal do agente com ferramentas
-    """
-    
-    tools_description = "\n".join([
-        f"- {t['name']}: {t['description']} (Categoria: {t['category']})"
-        for t in tool_registry.list_tools()
-    ])
-    
-    enhanced_prompt = memory_agent.get_enhanced_system_prompt(
-        user_id, 
-        user_query, 
-        SYSTEM_PROMPT.format(tools_description=tools_description, base_dir=BASE_DIR)
-    )
-    
-    messages = [
-        {"role": "system", "content": enhanced_prompt},
-        {"role": "user", "content": user_query}
-    ]
-    
-    step = 0
-    tool_counter = 0
-    
-    while step < MAX_AGENT_STEPS and tool_counter < MAX_TOOL_EXECUTIONS:
-        step += 1
-        
-        start = time.time()
-        response_text = await async_llm(messages)
-        elapsed = round(time.time() - start, 2)
-        
-        tool_match = re.search(r'<tool>(.*?)</tool>', response_text, re.DOTALL)
-        
-        if tool_match:
-            try:
-                tool_call = json.loads(tool_match.group(1).strip())
-                tool_name = tool_call.get("name")
-                args = tool_call.get("args", [])
-                kwargs = tool_call.get("kwargs", {})
-                
-                tool_result = await tool_engine.execute(
-                    tool_name, 
-                    user_id,
-                    *args, 
-                    **kwargs
-                )
-                
-                tool_counter += 1
-                
-                messages.append({"role": "assistant", "content": response_text})
-                messages.append({
-                    "role": "system", 
-                    "content": f"Resultado da ferramenta {tool_name}: {json.dumps(tool_result, ensure_ascii=False)}"
-                })
-                
-                memory_agent.record_step(user_id, user_query, {
-                    "step": step,
-                    "thought": response_text[:100],
-                    "tool": tool_name,
-                    "result": tool_result
-                })
-                
-                continue
-                
-            except json.JSONDecodeError as e:
-                error_msg = f"Erro ao parsear chamada de ferramenta: {e}"
-                messages.append({"role": "assistant", "content": response_text})
-                messages.append({"role": "system", "content": error_msg})
-                continue
-        
-        memory_agent.record_step(user_id, user_query, {
-            "steps": step,
-            "tools_used": tool_counter,
-            "final_response": response_text[:200]
-        })
-        
-        yield {
-            "type": "final",
-            "response": response_text,
-            "tools_used": tool_counter,
-            "steps": step,
-            "time": elapsed
-        }
-        break
+tool_engine   = ToolExecutionEngine(tool_registry)
 
 # ============================================================
-# GROQ CALL
+# GROQ / OPENAI / DEEPSEEK CALL (via openai==0.28.1)
 # ============================================================
 
 def sync_llm(messages):
-    """Chamada síncrona à GROQ"""
+    """Chamada síncrona ao provider ativo"""
     try:
         response = openai.ChatCompletion.create(
             model=MODEL,
@@ -1982,11 +1959,11 @@ def sync_llm(messages):
         )
         return response
     except Exception as e:
-        logging.error(f"Erro GROQ: {e}")
+        logging.error(f"Erro LLM ({ACTIVE_PROVIDER_NAME}): {e}")
         raise
 
-async def async_llm(messages):
-    """Chamada assíncrona à GROQ"""
+async def async_llm(messages) -> str:
+    """Chamada assíncrona ao provider ativo"""
     loop = asyncio.get_running_loop()
     try:
         response = await loop.run_in_executor(
@@ -1995,7 +1972,116 @@ async def async_llm(messages):
         )
         return response["choices"][0]["message"]["content"].strip()
     except Exception as e:
-        return f"Erro: {str(e)[:100]}"
+        return f"Erro ({ACTIVE_PROVIDER_NAME}): {str(e)[:150]}"
+
+# ============================================================
+# AGENT LOOP — CORRIGIDO
+# ============================================================
+
+async def agent_loop(user_id: str, user_query: str):
+    """
+    Loop principal do agente com ferramentas.
+
+    FIX #1: Passa histórico real de conversa ao LLM a cada chamada.
+    FIX #2: Grava pares user/assistant no memory_agent após cada resposta.
+    FIX #5: Resultado de tool usa role 'user' com tag [TOOL_RESULT].
+    """
+
+    tools_description = "\n".join([
+        f"- {t['name']}: {t['description']} (Categoria: {t['category']})"
+        for t in tool_registry.list_tools()
+    ])
+
+    enhanced_prompt = memory_agent.get_enhanced_system_prompt(
+        user_id,
+        user_query,
+        SYSTEM_PROMPT.format(
+            tools_description=tools_description,
+            base_dir=BASE_DIR,
+            provider=_PROVIDERS[ACTIVE_PROVIDER_NAME]["label"],
+            model=MODEL
+        )
+    )
+
+    # FIX #1: Recupera histórico real de chat (últimas 40 mensagens)
+    chat_history = memory_agent.get_chat_history(user_id, last_n=40)
+
+    # FIX #1: Monta messages: [system] + [histórico] + [nova mensagem]
+    messages = [{"role": "system", "content": enhanced_prompt}]
+    messages.extend(chat_history)
+    messages.append({"role": "user", "content": user_query})
+
+    # FIX #2: Registra mensagem do usuário imediatamente
+    memory_agent.add_chat_message(user_id, "user", user_query)
+
+    step         = 0
+    tool_counter = 0
+
+    while step < MAX_AGENT_STEPS and tool_counter < MAX_TOOL_EXECUTIONS:
+        step += 1
+
+        start         = time.time()
+        response_text = await async_llm(messages)
+        elapsed       = round(time.time() - start, 2)
+
+        tool_match = re.search(r'<tool>(.*?)</tool>', response_text, re.DOTALL)
+
+        if tool_match:
+            try:
+                tool_call = json.loads(tool_match.group(1).strip())
+                tool_name = tool_call.get("name")
+                args      = tool_call.get("args", [])
+                kwargs    = tool_call.get("kwargs", {})
+
+                tool_result = await tool_engine.execute(
+                    tool_name, user_id, *args, **kwargs
+                )
+
+                tool_counter += 1
+
+                # FIX #5: role "user" com tag clara (não mais "system")
+                messages.append({"role": "assistant", "content": response_text})
+                messages.append({
+                    "role": "user",
+                    "content": f"[TOOL_RESULT: {tool_name}]\n{json.dumps(tool_result, ensure_ascii=False)}"
+                })
+
+                memory_agent.record_step(user_id, user_query, {
+                    "step":       step,
+                    "thought":    response_text[:200],
+                    "tool":       tool_name,
+                    "result":     str(tool_result)[:200],
+                    "confidence": 0.85
+                })
+
+                continue
+
+            except json.JSONDecodeError as e:
+                messages.append({"role": "assistant", "content": response_text})
+                messages.append({"role": "user", "content": f"[PARSE_ERROR] {e}"})
+                continue
+
+        # Resposta final — FIX #2: grava no histórico de chat real
+        memory_agent.add_chat_message(user_id, "assistant", response_text)
+
+        memory_agent.record_step(user_id, user_query, {
+            "steps":          step,
+            "tools_used":     tool_counter,
+            "thought":        response_text[:300],
+            "final_response": response_text[:300],
+            "confidence":     0.9
+        })
+
+        yield {
+            "type":       "final",
+            "response":   response_text,
+            "tools_used": tool_counter,
+            "steps":      step,
+            "time":       elapsed,
+            "provider":   ACTIVE_PROVIDER_NAME,
+            "model":      MODEL
+        }
+        break
 
 # ============================================================
 # API REST ENDPOINTS
@@ -2003,197 +2089,168 @@ async def async_llm(messages):
 
 @app.route("/")
 async def index():
-    """Status da API"""
     cpu, mem = get_resource_usage()
-    
+    p = _PROVIDERS[ACTIVE_PROVIDER_NAME]
     return jsonify({
-        "name": "OPENBOT v3.0",
-        "status": "online",
-        "architecture": "Plug & Play com Tool Use + Memória Persistente",
-        "base_dir": BASE_DIR,
-        "layers": {
-            "auth": "JWT Authentication",
-            "agent": "Tool-based Reasoning (40 ferramentas)",
-            "memory": "HGR 3 Níveis + MemorySQL 8 Tools"
+        "name":         "OPENBOT v3.1",
+        "status":       "online",
+        "architecture": "Multi-Provider + Tool Use + Memória Persistente",
+        "base_dir":     BASE_DIR,
+        "provider": {
+            "active":  ACTIVE_PROVIDER_NAME,
+            "label":   p["label"],
+            "model":   MODEL,
+            "api_base":p["api_base"],
+            "available": list(_PROVIDERS.keys())
         },
-        "model": MODEL,
-        "resources": {
-            "cpu": f"{cpu}%",
-            "memory": f"{mem}MB"
-        },
+        "resources": {"cpu": f"{cpu}%", "memory": f"{mem}MB"},
         "tools": {
-            "total": len(tool_registry.list_tools()),
-            "categories": [c.value for c in ToolCategory],
-            "list": tool_registry.list_tools()[:10]
+            "total":      len(tool_registry.list_tools()),
+            "categories": [c.value for c in ToolCategory]
         },
         "endpoints": {
-            "public": [
-                "POST /api/auth/register",
-                "POST /api/auth/login"
-            ],
+            "public":    ["POST /api/auth/register", "POST /api/auth/login"],
             "protected": [
                 "POST /api/chat",
                 "POST /api/chat/stream",
-                "GET /api/user/profile",
-                "GET /api/tools/list",
+                "POST /api/chat/clear",
+                "GET  /api/provider/list",
+                "POST /api/provider/switch",
+                "GET  /api/user/profile",
+                "GET  /api/tools/list",
                 "POST /api/tools/execute/{name}",
-                "GET /api/tools/history",
+                "GET  /api/tools/history",
                 "POST /api/auth/logout",
-                "GET /api/admin/stats"
+                "GET  /api/admin/stats"
             ]
         }
     })
 
-@app.route("/api/tools/list", methods=["GET"])
-@require_auth()
-async def list_tools():
-    """Lista todas as ferramentas disponíveis"""
-    tools = tool_registry.list_tools()
-    return jsonify({
-        "status": "success",
-        "total": len(tools),
-        "tools": tools
-    })
-
-@app.route("/api/tools/execute/<tool_name>", methods=["POST"])
-@require_auth()
-async def execute_tool(tool_name):
-    """Executa uma ferramenta específica"""
-    user_data = request.user_data
-    data = await request.get_json()
-    
-    args = data.get("args", [])
-    kwargs = data.get("kwargs", {})
-    
-    result = await tool_engine.execute(tool_name, user_data['username'], *args, **kwargs)
-    
-    return jsonify({
-        "status": "success",
-        "user": user_data['username'],
-        "result": result
-    })
-
-@app.route("/api/tools/history", methods=["GET"])
-@require_auth()
-async def tool_history():
-    """Histórico de execução de ferramentas do usuário"""
-    user_data = request.user_data
-    history = tool_engine.execution_history.get(user_data['username'], [])
-    
-    return jsonify({
-        "status": "success",
-        "history": history[-50:]
-    })
-
-# ============================================================
-# AUTH ENDPOINTS
-# ============================================================
+# ── AUTH ──────────────────────────────────────────────────────
 
 @app.route("/api/auth/register", methods=["POST"])
 async def register():
-    """Registro de novo usuário"""
     data = await request.get_json()
-    
+    if not data:
+        return jsonify({"error": "JSON inválido ou ausente"}), 400
+
     username = data.get("username", "").strip()
-    email = data.get("email", "").strip()
-    password = data.get("password", "")
-    
-    if not all([username, email, password]):
-        return jsonify({"error": "Campos obrigatórios"}), 400
-    
-    success, message, user_data = auth_manager.register_user(
-        username, email, password
-    )
-    
+    password = data.get("password", "").strip()
+    email    = data.get("email", "").strip()
+
+    if not all([username, password, email]):
+        return jsonify({"error": "username, password e email são obrigatórios"}), 400
+
+    # CORRIGIDO: auth_manager.register_user retorna (success, message, user_data)
+    success, message, user_data = auth_manager.register_user(username, email, password)
+
     if success:
         return jsonify({
-            "status": "success",
+            "status":  "success",
             "message": message,
-            "user": user_data
-        }), 201
-    else:
-        return jsonify({"error": message}), 400
+            "user": {
+                "user_id":  user_data["user_id"],
+                "username": user_data["username"],
+                "email":    user_data["email"]
+            }
+        })
+    return jsonify({"error": message}), 400
 
 @app.route("/api/auth/login", methods=["POST"])
 async def login():
-    """Login JWT"""
     data = await request.get_json()
-    
+    if not data:
+        return jsonify({"error": "JSON inválido ou ausente"}), 400
+
     username = data.get("username", "").strip()
-    password = data.get("password", "")
-    
+    password = data.get("password", "").strip()
+    ip       = get_client_ip(request)
+
     if not all([username, password]):
-        return jsonify({"error": "Campos obrigatórios"}), 400
-    
-    ip_address = get_client_ip(request)
-    
-    success, message, token = auth_manager.login(
-        username, password, ip_address
-    )
-    
+        return jsonify({"error": "username e password são obrigatórios"}), 400
+
+    # CORRIGIDO: auth_manager.login retorna tupla (success, message, token)
+    success, message, token = auth_manager.login(username, password, ip)
+
     if success:
         return jsonify({
-            "status": "success",
-            "message": message,
-            "token": token,
-            "expires": "24h"
-        }), 200
-    else:
-        return jsonify({"error": message}), 401
+            "status":   "success",
+            "token":    token,
+            "username": username,
+            "message":  message
+        })
+    return jsonify({"error": message}), 401
 
 @app.route("/api/auth/logout", methods=["POST"])
 @require_auth()
 async def logout():
-    """Logout - revoga token"""
-    auth_header = request.headers.get('Authorization')
-    token = auth_header.split(' ')[1]
-    
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    # CORRIGIDO: método correto é revoke_token
     auth_manager.revoke_token(token)
-    
-    return jsonify({"status": "success", "message": "Logout realizado"}), 200
+    return jsonify({"status": "success", "message": "Logout realizado."})
 
-# ============================================================
-# PROTECTED ENDPOINTS
-# ============================================================
+# ── PROVIDER ─────────────────────────────────────────────────
 
-@app.route("/api/user/profile", methods=["GET"])
+@app.route("/api/provider/list", methods=["GET"])
 @require_auth()
-async def get_profile():
-    """Perfil do usuário"""
-    user_data = request.user_data
-    
-    try:
-        stats = memory_agent.get_stats(user_data['username'])
-    except:
-        stats = {"error": "Memória indisponível"}
-    
-    # Estatísticas de ferramentas
-    tool_stats = {
-        "total_executions": len(tool_engine.execution_history.get(user_data['username'], [])),
-        "recent_tools": [
-            {
-                "tool": h['tool'],
-                "time": h['time'],
-                "timestamp": h['timestamp']
-            }
-            for h in tool_engine.execution_history.get(user_data['username'], [])[-5:]
-        ]
-    }
-    
-    # Estatísticas de memória persistente
-    memory_stats = await memory_sql.memory_stats(user_data['username'])
-    
+async def provider_list():
+    """Lista todos os providers e seus modelos"""
+    providers_info = []
+    for name, p in _PROVIDERS.items():
+        key_ok = bool(os.environ.get(p["api_key_env"], "").strip())
+        providers_info.append({
+            "name":          name,
+            "label":         p["label"],
+            "api_base":      p["api_base"],
+            "api_key_env":   p["api_key_env"],
+            "api_key_set":   key_ok,
+            "models":        p["models"],
+            "default_model": p["default_model"],
+            "active":        name == ACTIVE_PROVIDER_NAME
+        })
     return jsonify({
-        "status": "success",
-        "user": {
-            "user_id": user_data['user_id'],
-            "username": user_data['username'],
-            "email": user_data['email'],
-            "is_admin": user_data.get('is_admin', False)
-        },
-        "memory_stats": stats,
-        "tool_stats": tool_stats,
-        "persistent_memory": memory_stats.get('stats', {}) if memory_stats['status'] == 'success' else {}
+        "status":           "success",
+        "active_provider":  ACTIVE_PROVIDER_NAME,
+        "active_model":     MODEL,
+        "providers":        providers_info
+    })
+
+@app.route("/api/provider/switch", methods=["POST"])
+@require_auth()
+async def provider_switch():
+    """
+    Troca provider em runtime.
+    Body: {"provider": "groq", "model": "llama-3.1-8b-instant"}
+    """
+    data          = await request.get_json()
+    provider_name = data.get("provider", "").strip().lower()
+    model         = data.get("model", "").strip() or None
+
+    if not provider_name:
+        return jsonify({"error": "Campo 'provider' obrigatório"}), 400
+
+    try:
+        result = switch_provider(provider_name, model)
+        return jsonify({"status": "success", **result})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+# ── CHAT ──────────────────────────────────────────────────────
+
+@app.route("/api/chat/clear", methods=["POST"])
+@require_auth()
+async def chat_clear():
+    """
+    FIX #1: Limpa o histórico de conversa do usuário (nova conversa).
+    Não apaga memórias de longo prazo, apenas o histórico atual.
+    """
+    user_data = request.user_data
+    username  = user_data['username']
+    cleared   = memory_agent.clear_chat_history(username)
+    return jsonify({
+        "status":  "success",
+        "message": f"Histórico limpo ({cleared} mensagens removidas).",
+        "user":    username
     })
 
 @app.route("/api/chat", methods=["POST"])
@@ -2201,20 +2258,21 @@ async def get_profile():
 async def chat():
     """Chat com resposta completa"""
     user_data = request.user_data
-    data = await request.get_json()
-    
-    message = data.get("message", "").strip()
-    
+    data      = await request.get_json()
+    message   = data.get("message", "").strip()
+
     if not message:
         return jsonify({"error": "Mensagem vazia"}), 400
-    
+
     responses = []
     async for response in agent_loop(user_data['username'], message):
         responses.append(response)
-    
+
     return jsonify({
-        "status": "success",
-        "user": user_data['username'],
+        "status":    "success",
+        "user":      user_data['username'],
+        "provider":  ACTIVE_PROVIDER_NAME,
+        "model":     MODEL,
         "responses": responses
     })
 
@@ -2223,68 +2281,128 @@ async def chat():
 async def chat_stream():
     """Chat com streaming SSE"""
     user_data = request.user_data
-    data = await request.get_json()
-    
-    message = data.get("message", "").strip()
-    
+    data      = await request.get_json()
+    message   = data.get("message", "").strip()
+
     if not message:
         return jsonify({"error": "Mensagem vazia"}), 400
-    
+
     async def event_stream():
         async for response in agent_loop(user_data['username'], message):
             yield f"data: {json.dumps(response, ensure_ascii=False)}\n\n"
-    
+
     return Response(event_stream(), mimetype="text/event-stream")
+
+# ── TOOLS ─────────────────────────────────────────────────────
+
+@app.route("/api/tools/list", methods=["GET"])
+@require_auth()
+async def tools_list():
+    return jsonify({
+        "status": "success",
+        "total":  len(tool_registry.list_tools()),
+        "tools":  tool_registry.list_tools()
+    })
+
+@app.route("/api/tools/execute/<tool_name>", methods=["POST"])
+@require_auth()
+async def tools_execute(tool_name):
+    user_data = request.user_data
+    data      = await request.get_json()
+    args      = data.get("args", [])
+    kwargs    = data.get("kwargs", {})
+
+    result = await tool_engine.execute(tool_name, user_data['username'], *args, **kwargs)
+    return jsonify({"status": "success", "result": result})
+
+@app.route("/api/tools/history", methods=["GET"])
+@require_auth()
+async def tools_history():
+    user_data = request.user_data
+    username  = user_data['username']
+    history   = tool_engine.execution_history.get(username, [])
+    return jsonify({
+        "status":  "success",
+        "total":   len(history),
+        "history": history[-50:]
+    })
+
+# ── USER ──────────────────────────────────────────────────────
+
+@app.route("/api/user/profile", methods=["GET"])
+@require_auth()
+async def user_profile():
+    user_data    = request.user_data
+    stats        = memory_agent.get_stats(user_data['username'])
+    memory_stats = await memory_sql.memory_stats(user_data['username'])
+    tool_stats   = {
+        "total_executions": len(tool_engine.execution_history.get(user_data['username'], [])),
+        "recent_tools": [
+            {"tool": h['tool'], "time": h['time'], "timestamp": h['timestamp']}
+            for h in tool_engine.execution_history.get(user_data['username'], [])[-5:]
+        ]
+    }
+    return jsonify({
+        "status": "success",
+        "user": {
+            "user_id":  user_data['user_id'],
+            "username": user_data['username'],
+            "email":    user_data['email'],
+            "is_admin": user_data.get('is_admin', False)
+        },
+        "provider": {
+            "active": ACTIVE_PROVIDER_NAME,
+            "model":  MODEL
+        },
+        "memory_stats":      stats,
+        "tool_stats":        tool_stats,
+        "persistent_memory": memory_stats.get('stats', {}) if memory_stats['status'] == 'success' else {}
+    })
+
+# ── ADMIN ─────────────────────────────────────────────────────
 
 @app.route("/api/admin/stats", methods=["GET"])
 @require_auth(admin_only=True)
 async def admin_stats():
-    """Estatísticas do sistema (admin)"""
-    
     cpu, mem = get_resource_usage()
-    
     db_sizes = {}
     for db in ["users.db", "agent_memory_v3.db", "openbot_v3.log"]:
         try:
-            full_path = os.path.join(BASE_DIR, db)
-            size = os.path.getsize(full_path) / (1024 * 1024)
+            size = os.path.getsize(os.path.join(BASE_DIR, db)) / (1024 * 1024)
             db_sizes[db] = f"{size:.2f} MB"
         except:
             db_sizes[db] = "N/A"
-    
+
     all_executions = []
     for user, history in tool_engine.execution_history.items():
         all_executions.extend(history)
-    
+
     tool_usage = {}
     for exec in all_executions:
         tool = exec['tool']
         tool_usage[tool] = tool_usage.get(tool, 0) + 1
-    
-    # Estatísticas de memória global
+
     memory_global = await memory_sql.memory_stats()
-    
+
     return jsonify({
         "status": "success",
         "system": {
-            "model": MODEL,
-            "base_dir": BASE_DIR,
-            "resources": {
-                "cpu": f"{cpu}%",
-                "memory": f"{mem}MB"
-            },
+            "provider":  _PROVIDERS[ACTIVE_PROVIDER_NAME]["label"],
+            "model":     MODEL,
+            "base_dir":  BASE_DIR,
+            "resources": {"cpu": f"{cpu}%", "memory": f"{mem}MB"},
             "databases": db_sizes,
             "cache": {
-                "tool_cache": len(tool_engine.cache),
-                "thread_pool": thread_pool._max_workers,
+                "tool_cache":   len(tool_engine.cache),
+                "thread_pool":  thread_pool._max_workers,
                 "process_pool": process_pool._max_workers
             }
         },
         "tools": {
             "total_executions": len(all_executions),
-            "unique_users": len(tool_engine.execution_history),
-            "usage": tool_usage,
-            "available": len(tool_registry.list_tools())
+            "unique_users":     len(tool_engine.execution_history),
+            "usage":            tool_usage,
+            "available":        len(tool_registry.list_tools())
         },
         "memory": memory_global.get('stats', {}) if memory_global['status'] == 'success' else {}
     })
@@ -2294,92 +2412,85 @@ async def admin_stats():
 # ============================================================
 
 async def cleanup_task():
-    """Limpeza periódica"""
+    """Limpeza periódica a cada hora"""
     while True:
         await asyncio.sleep(3600)
-        
         try:
             deleted = cleanup_old_tokens(user_db, days=7)
             if deleted > 0:
                 logging.info(f"Tokens removidos: {deleted}")
-            
+
             now = datetime.now()
-            expired_keys = []
-            for key, expiry in tool_engine.cache_ttl.items():
-                if now > expiry:
-                    expired_keys.append(key)
-            
+            expired_keys = [
+                k for k, expiry in tool_engine.cache_ttl.items()
+                if now > expiry
+            ]
             for key in expired_keys:
-                if key in tool_engine.cache:
-                    del tool_engine.cache[key]
-                if key in tool_engine.cache_ttl:
-                    del tool_engine.cache_ttl[key]
-            
+                tool_engine.cache.pop(key, None)
+                tool_engine.cache_ttl.pop(key, None)
+
             if expired_keys:
                 logging.info(f"Cache limpo: {len(expired_keys)} itens")
-            
-            # Limpeza automática de memórias antigas (dry_run=True para não deletar)
+
+            # Verifica memórias candidatas a limpeza (dry_run)
             cleanup_result = await memory_sql.memory_cleanup(
                 older_than_days=30,
                 importance_threshold=0.1,
                 dry_run=True
             )
             if cleanup_result['status'] == 'success' and cleanup_result.get('would_delete', 0) > 0:
-                logging.info(f"Memórias candidatas a limpeza: {cleanup_result['would_delete']}")
-            
+                logging.info(f"Memórias candidatas: {cleanup_result['would_delete']}")
+
         except Exception as e:
             logging.error(f"Erro na limpeza: {e}")
 
+# ============================================================
+# STARTUP
+# ============================================================
+
 @app.before_serving
 async def startup():
-    """Inicialização"""
     asyncio.create_task(cleanup_task())
-    
+
     try:
-        test = await async_llm([{"role": "user", "content": "teste"}])
-        print(f"✅ GROQ conectado: {test[:50]}...")
+        test = await async_llm([{"role": "user", "content": "ok"}])
+        print(f"✅ LLM conectado: {test[:60]}...")
     except Exception as e:
-        print(f"⚠️ GROQ: {e}")
-    
-    print("\n" + "="*70)
-    print("🚀 OPENBOT v3.0 - ARQUITETURA PLUG & PLAY COM TOOL USE")
-    print("="*70)
-    print(f"📂 DIRETÓRIO BASE: {BASE_DIR}")
-    print("="*70)
-    print("📦 CAMADA DE FERRAMENTAS (40):")
-    print("   • Python     (5)  • Shell    (5)  • Network  (6)")
-    print("   • Filesystem (5)  • Data     (4)  • System   (3)")
-    print("   • Crypto     (2)  • Utility  (4)  • Memory   (8)")
-    print("-"*70)
-    print("🔧 CORE API:")
-    print("   • AUTH    - JWT Authentication")
-    print("   • AGENT   - Tool-based Reasoning")
-    print("   • MEMORY  - HGR 3 Níveis + MemorySQL")
-    print("   • CACHE   - Tool Result Caching")
-    print("-"*70)
-    print("💾 DATABASES (dentro do diretório base):")
-    print("   • users.db            - Dados dos usuários")
-    print("   • agent_memory_v3.db  - Memória persistente (HGR + MemorySQL)")
-    print("   • openbot_v3.log      - Logs do sistema")
-    print("   • exports/            - Exports de memória")
-    print("-"*70)
-    print("⚡ Plug & Play com Tool Use + Memória Persistente:")
-    print("   • 40 ferramentas integradas (32 base + 8 memória)")
-    print("   • Cache inteligente (5 min TTL)")
-    print("   • Execução segura em sandbox")
-    print("   • Histórico por usuário")
-    print("   • Memória persistente com 8 operações")
-    print("   • Streaming em tempo real")
-    print("="*70)
-    print(f"🌐 http://0.0.0.0:5000")
-    print(f"🔧 Total de ferramentas: {len(tool_registry.list_tools())}")
-    print("="*70)
-    
+        print(f"⚠️  LLM: {e}")
+
+    p = _PROVIDERS[ACTIVE_PROVIDER_NAME]
+    print("\n" + "=" * 70)
+    print("🚀 OPENBOT v3.1 — Multi-Provider + Tool Use + Memória Persistente")
+    print("=" * 70)
+    print(f"📂 Diretório base : {BASE_DIR}")
+    print(f"🤖 Provider ativo : {p['label']}")
+    print(f"   Modelo         : {MODEL}")
+    print(f"   API Base       : {p['api_base']}")
+    print("-" * 70)
+    print("🔌 Providers disponíveis:")
+    for name, prov in _PROVIDERS.items():
+        key_ok = "✅" if os.environ.get(prov["api_key_env"], "").strip() else "❌"
+        active = " ← ATIVO" if name == ACTIVE_PROVIDER_NAME else ""
+        print(f"   {key_ok} {prov['label']} ({', '.join(prov['models'][:2])}...){active}")
+    print("-" * 70)
+    print("📦 Ferramentas (40):")
     for category in ToolCategory:
         tools_in_cat = [t for t in tool_registry.list_tools() if t['category'] == category.value]
-        print(f"   {category.value.upper()}: {len(tools_in_cat)} ferramentas")
-    
-    print("="*70)
+        print(f"   {category.value.upper():12}: {len(tools_in_cat)} ferramentas")
+    print("-" * 70)
+    print("🧠 Memória HGR:")
+    print(f"   Short-term TTL  : {mem_config.short_term_ttl}s (1h)")
+    print(f"   Medium-term TTL : {mem_config.medium_term_ttl}s (24h)")
+    print(f"   Importance min  : {mem_config.importance_threshold}")
+    print(f"   Chat history    : últimas {mem_config.chat_history_to_llm} msgs ao LLM")
+    print("-" * 70)
+    print("🔧 Endpoints novos:")
+    print("   GET  /api/provider/list   — lista providers")
+    print("   POST /api/provider/switch — troca provider em runtime")
+    print("   POST /api/chat/clear      — limpa histórico de conversa")
+    print("=" * 70)
+    print(f"🌐 http://0.0.0.0:5000")
+    print("=" * 70)
 
 # ============================================================
 # START SERVER
@@ -2389,10 +2500,10 @@ if __name__ == "__main__":
     import hypercorn.asyncio
     from hypercorn.config import Config
 
-    config = Config()
-    config.bind = ["0.0.0.0:5000"]
+    config         = Config()
+    config.bind    = ["0.0.0.0:5000"]
     config.use_reloader = False
-    config.accesslog = "-"
-    config.errorlog = "-"
+    config.accesslog    = "-"
+    config.errorlog     = "-"
 
     asyncio.run(hypercorn.asyncio.serve(app, config))

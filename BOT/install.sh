@@ -1,315 +1,264 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# ══════════════════════════════════════════════════════════════════
+# OPENBOT v4.0 — Script de Instalação
+# Compatível com: Termux (Android) · Ubuntu/Debian · macOS
+# ══════════════════════════════════════════════════════════════════
 
-# ============================================================
-# OPENROKO v2.0 - Script de Instalação
-# ============================================================
+set -euo pipefail
 
-set -e  # Parar em caso de erro
+# ── Cores ──────────────────────────────────────────────────────
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
 
-echo "╔════════════════════════════════════════════════════════════╗"
-echo "║         OPENROKO v2.0 - Instalação e Configuração         ║"
-echo "╚════════════════════════════════════════════════════════════╝"
+info()    { echo -e "${BLUE}[INFO]${NC}  $*"; }
+success() { echo -e "${GREEN}[OK]${NC}    $*"; }
+warn()    { echo -e "${YELLOW}[AVISO]${NC} $*"; }
+error()   { echo -e "${RED}[ERRO]${NC}  $*"; exit 1; }
+
+# ── Cabeçalho ─────────────────────────────────────────────────
+echo ""
+echo "╔══════════════════════════════════════════════════╗"
+echo "║        OPENBOT v4.0 — Instalação                ║"
+echo "╚══════════════════════════════════════════════════╝"
 echo ""
 
-# ============================================================
-# VERIFICAR PYTHON
-# ============================================================
+# ── Detecção de ambiente ───────────────────────────────────────
+detect_env() {
+    if [ -d "/data/data/com.termux" ]; then
+        echo "termux"
+    elif command -v apt-get &>/dev/null; then
+        echo "debian"
+    elif command -v brew &>/dev/null; then
+        echo "macos"
+    else
+        echo "generic"
+    fi
+}
 
-echo "🔍 Verificando Python..."
+ENV=$(detect_env)
+info "Ambiente detectado: $ENV"
 
-if ! command -v python3 &> /dev/null; then
-    echo "❌ Python 3 não encontrado. Por favor, instale Python 3.8 ou superior."
-    exit 1
+# ── Verificar Python ──────────────────────────────────────────
+PY=$(command -v python3 || command -v python || echo "")
+[ -z "$PY" ] && error "Python 3 não encontrado. Instale-o antes de continuar."
+
+PY_VERSION=$($PY --version 2>&1 | awk '{print $2}')
+info "Python: $PY_VERSION ($PY)"
+
+# ── Instalar dependências do sistema ──────────────────────────
+install_system_deps() {
+    case "$ENV" in
+        termux)
+            info "Instalando dependências no Termux..."
+            pkg update -y -q
+            pkg install -y -q python python-pip openssl libffi
+            ;;
+        debian)
+            info "Instalando dependências (apt)..."
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq python3-pip python3-venv libssl-dev libffi-dev
+            ;;
+        macos)
+            info "Instalando dependências (brew)..."
+            brew install python openssl 2>/dev/null || true
+            ;;
+        *)
+            warn "Ambiente não reconhecido. Pulando instalação de dependências do sistema."
+            ;;
+    esac
+}
+
+install_system_deps
+
+# ── Criar e ativar ambiente virtual (exceto Termux) ───────────
+VENV_DIR="venv"
+if [ "$ENV" != "termux" ]; then
+    if [ ! -d "$VENV_DIR" ]; then
+        info "Criando ambiente virtual..."
+        $PY -m venv "$VENV_DIR"
+        success "Ambiente virtual criado: $VENV_DIR"
+    else
+        info "Ambiente virtual já existe: $VENV_DIR"
+    fi
+    source "$VENV_DIR/bin/activate"
+    PY="python"
 fi
 
-PYTHON_VERSION=$(python3 --version | awk '{print $2}')
-echo "✅ Python $PYTHON_VERSION encontrado"
+# ── Instalar dependências Python ──────────────────────────────
+info "Instalando dependências Python..."
 
-# ============================================================
-# CRIAR AMBIENTE VIRTUAL (OPCIONAL)
-# ============================================================
+$PY -m pip install --upgrade pip -q
 
-echo ""
-read -p "Deseja criar um ambiente virtual? (s/n): " CREATE_VENV
-
-if [[ "$CREATE_VENV" == "s" ]] || [[ "$CREATE_VENV" == "S" ]]; then
-    echo "📦 Criando ambiente virtual..."
-    python3 -m venv venv
-    
-    echo "🔄 Ativando ambiente virtual..."
-    source venv/bin/activate
-    echo "✅ Ambiente virtual ativado"
-fi
-
-# ============================================================
-# INSTALAR DEPENDÊNCIAS
-# ============================================================
-
-echo ""
-echo "📥 Instalando dependências..."
-
-# Lista de pacotes necessários
+# Dependências principais
 PACKAGES=(
-    "quart"
-    "hypercorn"
-    "openai"
-    "bcrypt"
-    "pyjwt"
-    "psutil"
+    "quart>=0.19.4"
+    "quart-cors>=0.6.0"
+    "hypercorn>=0.16.0"
+    "openai==0.28.1"          # Compatível com todos os providers (api_base)
+    "PyJWT>=2.8.0"
+    "bcrypt>=4.1.2"
+    "aiohttp>=3.9.0"
+    "psutil>=5.9.0"
+    "requests>=2.31.0"
+    "python-dotenv>=1.0.0"
 )
 
-# Verificar se está em Termux
-if [[ -d "/data/data/com.termux" ]]; then
-    echo "📱 Ambiente Termux detectado - usando --break-system-packages"
-    PIP_FLAGS="--break-system-packages"
-else
-    PIP_FLAGS=""
-fi
+# Dependências opcionais (não bloqueiam instalação)
+OPTIONAL_PACKAGES=(
+    "jmespath"
+    "autopep8"
+)
 
-# Atualizar pip
-python3 -m pip install --upgrade pip $PIP_FLAGS
-
-# Instalar pacotes
-for package in "${PACKAGES[@]}"; do
-    echo "  Installing $package..."
-    python3 -m pip install "$package" $PIP_FLAGS
+for pkg in "${PACKAGES[@]}"; do
+    $PY -m pip install "$pkg" -q && success "$pkg" || error "Falha ao instalar $pkg"
 done
 
-echo "✅ Dependências instaladas com sucesso"
+for pkg in "${OPTIONAL_PACKAGES[@]}"; do
+    $PY -m pip install "$pkg" -q && success "$pkg (opcional)" || warn "$pkg não instalado (opcional)"
+done
 
-# ============================================================
-# CONFIGURAR VARIÁVEIS DE AMBIENTE
-# ============================================================
-
-echo ""
-echo "🔧 Configurando variáveis de ambiente..."
-
-# Verificar se .env já existe
-if [ -f ".env" ]; then
-    echo "⚠️ Arquivo .env já existe."
-    read -p "Deseja sobrescrever? (s/n): " OVERWRITE_ENV
-    
-    if [[ "$OVERWRITE_ENV" != "s" ]] && [[ "$OVERWRITE_ENV" != "S" ]]; then
-        echo "Mantendo .env existente"
-    else
-        rm .env
+# ── Criar arquivo .env ────────────────────────────────────────
+setup_env() {
+    if [ -f ".env" ]; then
+        warn ".env já existe."
+        read -r -p "Deseja recriar? (s/N): " RECREATE
+        [[ "${RECREATE,,}" != "s" ]] && return
     fi
-fi
 
-# Criar .env se não existir
-if [ ! -f ".env" ]; then
-    echo "Criando arquivo .env..."
-    
-    # OpenAI API Key
-    read -p "Digite sua OPENAI_API_KEY: " OPENAI_KEY
-    
+    echo ""
+    info "Configurando variáveis de ambiente..."
+
+    # Provider
+    echo ""
+    echo "Providers disponíveis:"
+    echo "  1) deepseek  (recomendado — custo baixo)"
+    echo "  2) groq       (gratuito — muito rápido)"
+    echo "  3) openai     (GPT-4)"
+    echo "  4) anthropic  (Claude)"
+    read -r -p "Provider [1-4, padrão=1]: " PROV_CHOICE
+
+    case "$PROV_CHOICE" in
+        2) PROVIDER="groq";      KEY_VAR="GROQ_API_KEY" ;;
+        3) PROVIDER="openai";    KEY_VAR="OPENAI_API_KEY" ;;
+        4) PROVIDER="anthropic"; KEY_VAR="ANTHROPIC_API_KEY" ;;
+        *) PROVIDER="deepseek";  KEY_VAR="DEEPSEEK_API_KEY" ;;
+    esac
+
+    read -r -p "Digite sua $KEY_VAR: " API_KEY
+    [ -z "$API_KEY" ] && warn "API Key vazia — configure depois no .env"
+
     # JWT Secret
-    echo "Gerando JWT_SECRET aleatório..."
-    JWT_SECRET=$(openssl rand -hex 32 2>/dev/null || cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 64 | head -n 1)
-    
-    # Ambiente
-    read -p "Ambiente (development/production) [development]: " ENVIRONMENT
-    ENVIRONMENT=${ENVIRONMENT:-development}
-    
-    # Criar arquivo .env
-    cat > .env << EOF
-# OpenAI Configuration
-OPENAI_API_KEY=$OPENAI_KEY
+    JWT_SECRET=$(openssl rand -hex 32 2>/dev/null || $PY -c "import secrets; print(secrets.token_hex(32))")
 
-# JWT Configuration
+    # Ambiente
+    read -r -p "Ambiente (development/production) [development]: " APP_ENV
+    APP_ENV="${APP_ENV:-development}"
+
+    # Diretório base
+    DEFAULT_BASE="$HOME/openbot_workspace"
+    read -r -p "Diretório de trabalho [$DEFAULT_BASE]: " BASE_DIR
+    BASE_DIR="${BASE_DIR:-$DEFAULT_BASE}"
+
+    cat > .env << EOF
+# ── Provider de IA ────────────────────────
+OPENBOT_PROVIDER=$PROVIDER
+$KEY_VAR=$API_KEY
+
+# ── Segurança ─────────────────────────────
 JWT_SECRET=$JWT_SECRET
 
-# Environment
-OPENROKO_ENV=$ENVIRONMENT
+# ── Ambiente ──────────────────────────────
+OPENBOT_ENV=$APP_ENV
+OPENBOT_DEBUG=$([ "$APP_ENV" = "development" ] && echo "true" || echo "false")
 
-# Server Configuration
+# ── Servidor ──────────────────────────────
 HOST=0.0.0.0
 PORT=5000
-DEBUG=true
+
+# ── Diretório base ────────────────────────
+OPENBOT_BASE_DIR=$BASE_DIR
+
+# ── CORS (produção: separe origens com vírgula) ────────────────
+# CORS_ORIGINS=https://meusite.com,https://app.meusite.com
+CORS_ORIGINS=*
 EOF
-    
-    echo "✅ Arquivo .env criado"
-fi
 
-# ============================================================
-# VERIFICAR ARQUIVOS NECESSÁRIOS
-# ============================================================
+    success ".env criado com sucesso"
+}
 
+setup_env
+
+# ── Verificar arquivos do projeto ────────────────────────────
 echo ""
-echo "📄 Verificando arquivos do projeto..."
+info "Verificando arquivos do projeto..."
+REQUIRED=("OPENBOT.py" "HGR.py" "auth_system.py" "config.py")
+MISSING=()
 
-REQUIRED_FILES=(
-    "OPENBOT_TELEGRAM_V2.py"
-    "HGR.py"
-    "auth_system.py"
-    "config.py"
-)
-
-MISSING_FILES=()
-
-for file in "${REQUIRED_FILES[@]}"; do
-    if [ -f "$file" ]; then
-        echo "  ✅ $file"
+for f in "${REQUIRED[@]}"; do
+    if [ -f "$f" ]; then
+        success "$f"
     else
-        echo "  ❌ $file (faltando)"
-        MISSING_FILES+=("$file")
+        warn "$f não encontrado"
+        MISSING+=("$f")
     fi
 done
 
-if [ ${#MISSING_FILES[@]} -gt 0 ]; then
-    echo ""
-    echo "⚠️ Arquivos faltando: ${MISSING_FILES[*]}"
-    echo "Por favor, certifique-se de que todos os arquivos estão no diretório."
-    exit 1
-fi
+[ ${#MISSING[@]} -gt 0 ] && error "Arquivos faltando: ${MISSING[*]}"
 
-# ============================================================
-# CRIAR DIRETÓRIOS NECESSÁRIOS
-# ============================================================
-
+# ── Criar diretórios ──────────────────────────────────────────
 echo ""
-echo "📁 Criando diretórios..."
+info "Criando estrutura de diretórios..."
 
-mkdir -p logs
-mkdir -p backups
+BASE_DIR_VALUE=$(grep "OPENBOT_BASE_DIR" .env | cut -d= -f2)
+BASE_DIR_VALUE="${BASE_DIR_VALUE:-$HOME/openbot_workspace}"
 
-echo "✅ Diretórios criados"
+for dir in "$BASE_DIR_VALUE" "$BASE_DIR_VALUE/exports" "$BASE_DIR_VALUE/logs" "$BASE_DIR_VALUE/backups"; do
+    mkdir -p "$dir" && success "$dir"
+done
 
-# ============================================================
-# TESTAR CONFIGURAÇÃO
-# ============================================================
-
+# ── Teste de configuração ─────────────────────────────────────
 echo ""
-echo "🧪 Testando configuração..."
+info "Testando configuração..."
 
-python3 << EOF
+$PY - << 'PYEOF'
 import sys
 sys.path.insert(0, '.')
-
 try:
-    from config import load_config_from_env
-    
-    config = load_config_from_env()
-    is_valid, errors = config.validate()
-    
-    if is_valid:
-        print("✅ Configuração válida!")
-        config.print_summary()
-        sys.exit(0)
-    else:
-        print("❌ Erros na configuração:")
-        for error in errors:
-            print(f"  • {error}")
-        sys.exit(1)
-except Exception as e:
-    print(f"❌ Erro ao testar configuração: {e}")
-    sys.exit(1)
-EOF
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
-if [ $? -ne 0 ]; then
-    echo ""
-    echo "⚠️ Falha na validação da configuração"
-    exit 1
+from config import load_config_from_env
+cfg = load_config_from_env()
+valid, errors = cfg.validate()
+cfg.print_summary()
+
+if valid:
+    print("\n✅ Configuração válida!")
+else:
+    print("\n⚠️  Avisos:")
+    for e in errors:
+        print(f"  • {e}")
+PYEOF
+
+# ── Resumo final ──────────────────────────────────────────────
+echo ""
+echo "═══════════════════════════════════════════════════"
+success "Instalação concluída!"
+echo ""
+echo "Para iniciar o servidor:"
+if [ "$ENV" != "termux" ]; then
+    echo "  source venv/bin/activate"
 fi
-
-# ============================================================
-# CRIAR SCRIPT DE INICIALIZAÇÃO
-# ============================================================
-
+echo "  python OPENBOT.py"
 echo ""
-echo "📝 Criando script de inicialização..."
-
-cat > start.sh << 'EOF'
-#!/bin/bash
-
-# Carregar variáveis de ambiente
-if [ -f ".env" ]; then
-    export $(cat .env | grep -v '^#' | xargs)
-fi
-
-# Ativar ambiente virtual se existir
-if [ -d "venv" ]; then
-    source venv/bin/activate
-fi
-
-echo "🚀 Iniciando OPENROKO v2.0..."
-python3 OPENBOT_TELEGRAM_V2.py
-EOF
-
-chmod +x start.sh
-
-echo "✅ Script de inicialização criado (start.sh)"
-
-# ============================================================
-# CRIAR SCRIPT DE BACKUP
-# ============================================================
-
+echo "Com CORS habilitado:"
+echo "  python OPENBOT_CORS.py"
 echo ""
-echo "💾 Criando script de backup..."
-
-cat > backup.sh << 'EOF'
-#!/bin/bash
-
-BACKUP_DIR="backups"
-TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-BACKUP_FILE="$BACKUP_DIR/backup_$TIMESTAMP.tar.gz"
-
-echo "📦 Criando backup em $BACKUP_FILE..."
-
-tar -czf "$BACKUP_FILE" \
-    users.db \
-    agent_memory.db \
-    .env \
-    agent_execution.log \
-    2>/dev/null || true
-
-if [ -f "$BACKUP_FILE" ]; then
-    echo "✅ Backup criado com sucesso: $BACKUP_FILE"
-    
-    # Manter apenas os 10 backups mais recentes
-    ls -t $BACKUP_DIR/backup_*.tar.gz | tail -n +11 | xargs -r rm
-    echo "🗑️ Backups antigos removidos (mantendo 10 mais recentes)"
-else
-    echo "❌ Erro ao criar backup"
-    exit 1
-fi
-EOF
-
-chmod +x backup.sh
-
-echo "✅ Script de backup criado (backup.sh)"
-
-# ============================================================
-# RESUMO FINAL
-# ============================================================
-
-echo ""
-echo "╔════════════════════════════════════════════════════════════╗"
-echo "║                  ✅ INSTALAÇÃO CONCLUÍDA                   ║"
-echo "╚════════════════════════════════════════════════════════════╝"
-echo ""
-echo "📚 Próximos passos:"
-echo ""
-echo "1. Iniciar o servidor:"
-echo "   ./start.sh"
-echo ""
-echo "2. Testar a API:"
-echo "   curl http://localhost:5000/"
-echo ""
-echo "3. Criar primeiro usuário:"
-echo "   curl -X POST http://localhost:5000/api/auth/register \\"
-echo "     -H \"Content-Type: application/json\" \\"
-echo "     -d '{\"username\":\"admin\",\"email\":\"admin@example.com\",\"password\":\"Admin123!\"}'"
-echo ""
-echo "4. Fazer login:"
-echo "   curl -X POST http://localhost:5000/api/auth/login \\"
-echo "     -H \"Content-Type: application/json\" \\"
-echo "     -d '{\"username\":\"admin\",\"password\":\"Admin123!\"}'"
-echo ""
-echo "📖 Documentação completa: API_DOCUMENTATION.md"
-echo ""
-echo "💾 Fazer backup:"
-echo "   ./backup.sh"
-echo ""
-echo "🌟 Bom uso do OPENROKO v2.0!"
-echo ""
+echo "Acessar a API:"
+echo "  http://localhost:5000"
+echo "═══════════════════════════════════════════════════"

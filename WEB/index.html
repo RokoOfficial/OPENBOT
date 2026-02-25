@@ -1,0 +1,1169 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>OPENBOT v3.1 · Terminal Mobile</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap');
+
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background: #020617;
+            color: #f1f5f9;
+            height: 100vh;
+            overflow: hidden;
+            touch-action: manipulation;
+        }
+
+        .glass {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .glass-card {
+            background: rgba(30, 41, 59, 0.4);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        /* ── Auth overlay ── */
+        #authOverlay {
+            background: radial-gradient(circle at top, #1e293b 0%, #020617 100%);
+            z-index: 100;
+        }
+
+        /* ── Animações ── */
+        .animate-fade-in {
+            animation: fadeIn 0.25s ease-out both;
+        }
+        .animate-slide-up {
+            animation: slideUp 0.3s cubic-bezier(.16,1,.3,1) both;
+        }
+        .animate-shake {
+            animation: shake 0.4s ease-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px) scale(.97); }
+            to   { opacity: 1; transform: translateY(0)   scale(1); }
+        }
+        @keyframes shake {
+            0%,100% { transform: translateX(0); }
+            20%      { transform: translateX(-8px); }
+            40%      { transform: translateX(8px); }
+            60%      { transform: translateX(-5px); }
+            80%      { transform: translateX(5px); }
+        }
+
+        /* ── Toast ── */
+        .toast {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 12px 16px;
+            border-radius: 14px;
+            box-shadow: 0 8px 32px rgba(0,0,0,.45);
+            font-size: 13px;
+            font-weight: 500;
+            min-width: 260px;
+            max-width: 340px;
+            animation: toastIn .3s cubic-bezier(.16,1,.3,1) both;
+            border-left: 3px solid transparent;
+            backdrop-filter: blur(16px);
+        }
+        .toast.removing {
+            animation: toastOut .25s ease forwards;
+        }
+        @keyframes toastIn {
+            from { opacity:0; transform: translateX(30px) scale(.95); }
+            to   { opacity:1; transform: translateX(0)    scale(1);   }
+        }
+        @keyframes toastOut {
+            from { opacity:1; transform: translateX(0) scale(1); max-height:80px; }
+            to   { opacity:0; transform: translateX(30px) scale(.9); max-height:0; padding:0; margin:0; }
+        }
+        .toast.success { background:rgba(16,185,129,.15); border-color:#10b981; color:#a7f3d0; }
+        .toast.error   { background:rgba(239,68,68,.15);  border-color:#ef4444; color:#fca5a5; }
+        .toast.info    { background:rgba(59,130,246,.15); border-color:#3b82f6; color:#93c5fd; }
+        .toast.warning { background:rgba(245,158,11,.15); border-color:#f59e0b; color:#fcd34d; }
+        .toast.loading { background:rgba(99,102,241,.15); border-color:#6366f1; color:#c7d2fe; }
+        .toast-icon { font-size:16px; flex-shrink:0; margin-top:1px; }
+        .toast-body { flex:1; }
+        .toast-title { font-weight:700; font-size:12px; text-transform:uppercase; letter-spacing:.04em; opacity:.7; margin-bottom:2px; }
+        .toast-msg { line-height:1.4; }
+        .toast-close { opacity:.5; cursor:pointer; flex-shrink:0; font-size:12px; margin-top:1px; padding:2px; }
+        .toast-close:hover { opacity:1; }
+        .toast-progress {
+            position:absolute; bottom:0; left:0; height:2px;
+            border-radius:0 0 14px 14px;
+            transition: width linear;
+        }
+        .toast.success .toast-progress { background:#10b981; }
+        .toast.error   .toast-progress { background:#ef4444; }
+        .toast.info    .toast-progress { background:#3b82f6; }
+        .toast.warning .toast-progress { background:#f59e0b; }
+        .toast.loading .toast-progress { background:#6366f1; }
+
+        /* ── Input de auth com estado ── */
+        .auth-input {
+            width: 100%;
+            background: rgba(15,23,42,.6);
+            border: 1.5px solid rgba(255,255,255,.08);
+            border-radius: 16px;
+            padding: 14px 14px 14px 44px;
+            outline: none;
+            color: #f1f5f9;
+            font-size: 14px;
+            transition: border-color .2s, box-shadow .2s;
+        }
+        .auth-input:focus {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59,130,246,.2);
+        }
+        .auth-input.error {
+            border-color: #ef4444;
+            box-shadow: 0 0 0 3px rgba(239,68,68,.15);
+        }
+        .auth-input.success {
+            border-color: #10b981;
+        }
+
+        /* ── Botão com estado de loading ── */
+        .btn-primary {
+            width:100%; padding:14px;
+            border-radius:16px;
+            font-weight:700; font-size:14px;
+            background: #2563eb;
+            color: #fff;
+            transition: background .2s, transform .1s, opacity .2s;
+            position: relative;
+            overflow: hidden;
+        }
+        .btn-primary:hover:not(:disabled)  { background: #3b82f6; }
+        .btn-primary:active:not(:disabled) { transform: scale(.97); }
+        .btn-primary:disabled { opacity:.6; cursor:not-allowed; }
+        .btn-primary.loading::after {
+            content:'';
+            position:absolute; inset:0;
+            background: rgba(0,0,0,.25);
+        }
+
+        /* ── Nav ── */
+        .nav-active {
+            background: rgba(59,130,246,.15);
+            color: #60a5fa;
+            border-left: 3px solid #3b82f6;
+        }
+
+        /* ── Typing dots ── */
+        .typing-dot { animation: tdot 1.4s infinite ease-in-out both; }
+        .typing-dot:nth-child(1) { animation-delay: -.32s; }
+        .typing-dot:nth-child(2) { animation-delay: -.16s; }
+        @keyframes tdot {
+            0%,80%,100% { transform:scale(0); opacity:.3; }
+            40%          { transform:scale(1); opacity:1; }
+        }
+
+        /* ── Scrollbar ── */
+        .scrollbar-thin::-webkit-scrollbar { width:4px; }
+        .scrollbar-thin::-webkit-scrollbar-track { background:#1e293b; }
+        .scrollbar-thin::-webkit-scrollbar-thumb { background:#475569; border-radius:20px; }
+
+        .workspace-card { transition: all .2s ease; }
+        .workspace-card:hover { transform:translateY(-2px); border-color:#3b82f6; }
+    </style>
+</head>
+<body class="flex overflow-hidden">
+
+<!-- ══════════════════════════════════════════════════════════
+     OVERLAY DE LOGIN
+══════════════════════════════════════════════════════════ -->
+<div id="authOverlay" class="fixed inset-0 flex items-center justify-center p-5 z-[100]">
+    <div class="w-full max-w-sm">
+
+        <!-- Card de login -->
+        <div id="loginCard" class="glass p-8 rounded-[2rem] shadow-2xl animate-slide-up">
+            <div class="flex flex-col items-center mb-7">
+                <div class="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mb-4 shadow-lg shadow-blue-600/30">
+                    <i class="fa-solid fa-robot text-2xl text-white"></i>
+                </div>
+                <h2 class="text-xl font-bold">OPENBOT v3.1</h2>
+                <p class="text-xs text-slate-500 mt-1">Autenticação de terminal</p>
+            </div>
+
+            <div class="space-y-3">
+                <div class="relative">
+                    <i class="fa-solid fa-user absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm pointer-events-none"></i>
+                    <input type="text" id="loginUsername" placeholder="Utilizador"
+                        class="auth-input" autocomplete="username" autocorrect="off" autocapitalize="none">
+                </div>
+                <div class="relative">
+                    <i class="fa-solid fa-lock absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm pointer-events-none"></i>
+                    <input type="password" id="loginPassword" placeholder="Palavra-passe"
+                        class="auth-input" autocomplete="current-password">
+                </div>
+
+                <!-- Mensagem de erro inline -->
+                <div id="loginError" class="hidden text-xs text-red-400 flex items-center gap-2 px-1">
+                    <i class="fa-solid fa-circle-exclamation"></i>
+                    <span id="loginErrorMsg"></span>
+                </div>
+
+                <button id="loginBtn" onclick="handleLogin()" class="btn-primary mt-1">
+                    <span id="loginBtnText">Entrar no Sistema</span>
+                </button>
+            </div>
+
+            <p class="mt-5 text-xs text-center text-slate-500">
+                Sem conta?
+                <a href="#" onclick="showRegister()" class="text-blue-400 hover:underline font-medium">Criar nova conta</a>
+            </p>
+        </div>
+
+        <!-- Card de registro (oculto inicialmente) -->
+        <div id="registerCard" class="glass p-8 rounded-[2rem] shadow-2xl animate-slide-up hidden">
+            <div class="flex items-center gap-3 mb-6">
+                <button onclick="showLogin()" class="text-slate-400 hover:text-white transition-colors p-1">
+                    <i class="fa-solid fa-arrow-left"></i>
+                </button>
+                <div>
+                    <h3 class="font-bold text-lg">Criar conta</h3>
+                    <p class="text-xs text-slate-500">Preencha os dados abaixo</p>
+                </div>
+            </div>
+
+            <div class="space-y-3">
+                <div class="relative">
+                    <i class="fa-solid fa-user absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm pointer-events-none"></i>
+                    <input type="text" id="regUsername" placeholder="Utilizador"
+                        class="auth-input" autocorrect="off" autocapitalize="none">
+                </div>
+                <div class="relative">
+                    <i class="fa-solid fa-envelope absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm pointer-events-none"></i>
+                    <input type="email" id="regEmail" placeholder="Email"
+                        class="auth-input" autocomplete="email">
+                </div>
+                <div class="relative">
+                    <i class="fa-solid fa-lock absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm pointer-events-none"></i>
+                    <input type="password" id="regPassword" placeholder="Senha (min. 8 chars)"
+                        class="auth-input" autocomplete="new-password">
+                </div>
+
+                <!-- Requisitos de senha -->
+                <div id="passwordHints" class="hidden grid grid-cols-2 gap-1 px-1">
+                    <span id="hint-len"  class="text-[10px] text-slate-500 flex items-center gap-1"><i class="fa-solid fa-circle text-[6px]"></i> 8+ caracteres</span>
+                    <span id="hint-upper"class="text-[10px] text-slate-500 flex items-center gap-1"><i class="fa-solid fa-circle text-[6px]"></i> Maiúscula</span>
+                    <span id="hint-lower"class="text-[10px] text-slate-500 flex items-center gap-1"><i class="fa-solid fa-circle text-[6px]"></i> Minúscula</span>
+                    <span id="hint-num"  class="text-[10px] text-slate-500 flex items-center gap-1"><i class="fa-solid fa-circle text-[6px]"></i> Número</span>
+                </div>
+
+                <!-- Mensagem de erro inline -->
+                <div id="regError" class="hidden text-xs text-red-400 flex items-center gap-2 px-1">
+                    <i class="fa-solid fa-circle-exclamation"></i>
+                    <span id="regErrorMsg"></span>
+                </div>
+
+                <button id="regBtn" onclick="handleRegister()" class="btn-primary mt-1">
+                    <span id="regBtnText">Criar Conta</span>
+                </button>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<!-- Overlay para fechar sidebar mobile -->
+<div id="sidebarOverlay" class="fixed inset-0 bg-black/60 z-40 hidden" onclick="toggleSidebar()"></div>
+
+<!-- ══════════════════════════════════════════════════════════
+     SIDEBAR
+══════════════════════════════════════════════════════════ -->
+<aside id="sidebar" class="w-72 bg-slate-900 border-r border-white/5 flex flex-col z-50 h-screen fixed md:relative -left-72 md:left-0 transition-all duration-300">
+    <div class="p-6 flex-1 overflow-y-auto">
+        <div class="flex items-center gap-3 mb-8">
+            <div class="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center">
+                <i class="fa-solid fa-bolt text-white"></i>
+            </div>
+            <div>
+                <h1 class="font-bold text-base tracking-tight">OPENBOT</h1>
+                <span class="text-[10px] text-slate-500">v3.1 Multi-Provider</span>
+            </div>
+        </div>
+
+        <!-- Perfil do usuário -->
+        <div id="userSection" class="mb-6 hidden">
+            <div class="p-4 bg-slate-950/50 rounded-2xl border border-white/5 flex items-center gap-3">
+                <div id="avatar" class="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-lg font-bold shadow-lg flex-shrink-0">U</div>
+                <div class="flex-1 min-w-0">
+                    <p id="profileName" class="text-sm font-bold truncate">Utilizador</p>
+                    <p id="profileEmail" class="text-xs text-slate-400 truncate"></p>
+                    <span class="text-[10px] text-emerald-500 font-bold uppercase flex items-center gap-1 mt-1">
+                        <span class="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span> Online
+                    </span>
+                </div>
+            </div>
+            <!-- Provider ativo -->
+            <div id="providerBadge" class="mt-2 px-3 py-2 bg-slate-800/50 rounded-xl border border-white/5 text-[10px] text-slate-400 flex items-center gap-2">
+                <i class="fa-solid fa-microchip text-blue-400"></i>
+                <span id="providerLabel">DeepSeek · deepseek-chat</span>
+            </div>
+        </div>
+
+        <!-- Navegação -->
+        <nav class="space-y-1">
+            <button onclick="switchView('chat')" id="nav-chat" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all nav-active">
+                <i class="fa-solid fa-comment-dots w-5"></i> Chat
+            </button>
+            <button onclick="switchView('memory')" id="nav-memory" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all text-slate-400 hover:text-white hover:bg-white/5">
+                <i class="fa-solid fa-brain w-5"></i> Memória
+            </button>
+            <button onclick="switchView('works')" id="nav-works" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all text-slate-400 hover:text-white hover:bg-white/5">
+                <i class="fa-solid fa-briefcase w-5"></i> Works
+            </button>
+            <button onclick="switchView('llms')" id="nav-llms" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all text-slate-400 hover:text-white hover:bg-white/5">
+                <i class="fa-solid fa-microchip w-5"></i> LLMs
+            </button>
+            <div class="pt-4 border-t border-white/5 mt-4 space-y-1">
+                <button onclick="clearChatHistory()" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold text-slate-400 hover:text-amber-400 hover:bg-amber-400/10 transition-all">
+                    <i class="fa-solid fa-broom w-5"></i> Nova Conversa
+                </button>
+                <button onclick="handleLogout()" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold text-red-400 hover:bg-red-400/10 transition-all">
+                    <i class="fa-solid fa-power-off w-5"></i> Sair
+                </button>
+            </div>
+        </nav>
+    </div>
+
+    <!-- Status da API -->
+    <div class="p-4 border-t border-white/5">
+        <div class="flex items-center justify-between text-[10px]">
+            <span id="connectionPing" class="text-emerald-500 font-mono flex items-center gap-1">
+                <span class="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span> Online
+            </span>
+            <span id="apiUrl" class="text-slate-600 truncate ml-2">localhost:5000</span>
+        </div>
+    </div>
+</aside>
+
+<!-- ══════════════════════════════════════════════════════════
+     ÁREA PRINCIPAL
+══════════════════════════════════════════════════════════ -->
+<main class="flex-1 flex flex-col bg-[#020617] h-screen overflow-hidden">
+
+    <!-- Header -->
+    <header class="h-14 border-b border-white/5 flex items-center justify-between px-4 bg-slate-900/50 backdrop-blur-md flex-shrink-0">
+        <button onclick="toggleSidebar()" class="md:hidden text-slate-400 p-2 -ml-2">
+            <i class="fa-solid fa-bars-staggered text-xl"></i>
+        </button>
+        <h2 id="viewTitle" class="font-bold text-xs uppercase tracking-widest text-slate-400">Terminal de Chat</h2>
+        <div class="flex items-center gap-2">
+            <button onclick="checkServerStatus()" class="text-slate-600 hover:text-slate-400 p-1 transition-colors" title="Verificar conexão">
+                <i class="fa-solid fa-rotate-right text-xs"></i>
+            </button>
+            <span id="pingMs" class="text-[10px] font-mono text-slate-500"></span>
+        </div>
+    </header>
+
+    <!-- VIEW: CHAT -->
+    <div id="chatView" class="flex-1 flex flex-col overflow-hidden hidden">
+        <div id="chatBox" class="flex-1 overflow-y-auto p-4 space-y-1 scrollbar-thin">
+            <div class="flex justify-center opacity-40 text-xs text-slate-600 pt-12">
+                <i class="fa-regular fa-message mr-2 mt-0.5"></i> Nenhuma mensagem ainda
+            </div>
+        </div>
+
+        <!-- Typing indicator -->
+        <div id="typingIndicator" class="px-4 pb-1 hidden">
+            <div class="flex items-center gap-2 text-xs text-slate-500">
+                <span class="flex gap-1">
+                    <span class="w-1.5 h-1.5 bg-blue-500 rounded-full typing-dot"></span>
+                    <span class="w-1.5 h-1.5 bg-blue-500 rounded-full typing-dot"></span>
+                    <span class="w-1.5 h-1.5 bg-blue-500 rounded-full typing-dot"></span>
+                </span>
+                OPENBOT está pensando...
+            </div>
+        </div>
+
+        <!-- Input -->
+        <div class="p-3 bg-slate-900/30 flex-shrink-0">
+            <div class="flex items-end gap-2 glass p-2 rounded-2xl">
+                <textarea id="messageInput" rows="1" placeholder="Mensagem..."
+                    class="flex-1 bg-transparent border-none outline-none p-3 text-sm text-white resize-none max-h-32 disabled:opacity-40"
+                    disabled></textarea>
+                <button onclick="sendMessage()" id="sendBtn"
+                    class="bg-blue-600 w-11 h-11 rounded-xl flex items-center justify-center text-white active:scale-95 transition-all shadow-lg shadow-blue-600/20 disabled:opacity-40 flex-shrink-0"
+                    disabled>
+                    <i class="fa-solid fa-paper-plane text-sm"></i>
+                </button>
+            </div>
+            <div class="flex justify-between text-[10px] text-slate-600 mt-2 px-2">
+                <span>Modo: <span id="modeDisplay">Normal</span></span>
+                <select id="chatMode" class="bg-transparent border border-white/10 rounded text-[10px] p-1 text-slate-400">
+                    <option value="normal">Normal</option>
+                    <option value="stream">Streaming</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <!-- PAGE VIEW (memória, works, llms) -->
+    <div id="pageViewContainer" class="flex-1 hidden overflow-y-auto scrollbar-thin p-4"></div>
+</main>
+
+<!-- ══════════════════════════════════════════════════════════
+     TOAST CONTAINER
+══════════════════════════════════════════════════════════ -->
+<div id="toastContainer" class="fixed top-4 right-4 z-[200] flex flex-col gap-2 pointer-events-none" style="width:340px"></div>
+
+<!-- ══════════════════════════════════════════════════════════
+     SCRIPT PRINCIPAL
+══════════════════════════════════════════════════════════ -->
+<script>
+// ─────────────────────────────────────────────────────────
+// CONFIGURAÇÃO
+// ─────────────────────────────────────────────────────────
+const API_BASE   = 'http://localhost:5000'; // ← altere para IP do backend
+const PAGES_PATH = './pages';
+
+const state = {
+    token:        localStorage.getItem('openbot_token'),
+    user:         null,
+    currentView:  'chat',
+    isStreaming:  false
+};
+
+// ─────────────────────────────────────────────────────────
+// SISTEMA DE NOTIFICAÇÕES (Toast)
+// ─────────────────────────────────────────────────────────
+const TOAST_ICONS = {
+    success: '<i class="fa-solid fa-circle-check text-emerald-400 toast-icon"></i>',
+    error:   '<i class="fa-solid fa-circle-xmark text-red-400 toast-icon"></i>',
+    info:    '<i class="fa-solid fa-circle-info text-blue-400 toast-icon"></i>',
+    warning: '<i class="fa-solid fa-triangle-exclamation text-amber-400 toast-icon"></i>',
+    loading: '<i class="fa-solid fa-circle-notch fa-spin text-indigo-400 toast-icon"></i>',
+};
+
+const TOAST_TITLES = {
+    success: 'Sucesso',
+    error:   'Erro',
+    info:    'Info',
+    warning: 'Atenção',
+    loading: 'Aguarde',
+};
+
+/**
+ * Exibe uma notificação toast.
+ * @param {string} message  - Mensagem principal
+ * @param {string} type     - 'success' | 'error' | 'info' | 'warning' | 'loading'
+ * @param {object} opts     - { title, duration, persistent }
+ * @returns {function}      - função removeToast() para fechar manualmente
+ */
+function showToast(message, type = 'info', opts = {}) {
+    const container = document.getElementById('toastContainer');
+    const duration  = opts.persistent ? 0 : (opts.duration || (type === 'error' ? 5000 : 3500));
+    const title     = opts.title || TOAST_TITLES[type] || '';
+
+    const toast = document.createElement('div');
+    toast.className = `toast ${type} relative overflow-hidden pointer-events-auto`;
+    toast.innerHTML = `
+        ${TOAST_ICONS[type] || ''}
+        <div class="toast-body">
+            ${title ? `<div class="toast-title">${title}</div>` : ''}
+            <div class="toast-msg">${message}</div>
+        </div>
+        <span class="toast-close" onclick="this.closest('.toast').remove()">
+            <i class="fa-solid fa-xmark"></i>
+        </span>
+        ${duration > 0 ? `<div class="toast-progress" style="width:100%"></div>` : ''}
+    `;
+
+    container.appendChild(toast);
+
+    // Anima barra de progresso
+    if (duration > 0) {
+        const bar = toast.querySelector('.toast-progress');
+        requestAnimationFrame(() => {
+            bar.style.transition = `width ${duration}ms linear`;
+            bar.style.width = '0%';
+        });
+
+        setTimeout(() => {
+            toast.classList.add('removing');
+            setTimeout(() => toast.remove(), 260);
+        }, duration);
+    }
+
+    return () => {
+        toast.classList.add('removing');
+        setTimeout(() => toast.remove(), 260);
+    };
+}
+
+/** Toast de loading persistente — retorna função para fechar */
+function showLoadingToast(message) {
+    return showToast(message, 'loading', { persistent: true });
+}
+
+// ─────────────────────────────────────────────────────────
+// UTILITÁRIOS
+// ─────────────────────────────────────────────────────────
+function escapeHtml(s) {
+    if (!s) return '';
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+            .replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+}
+
+function setButtonLoading(btnId, textId, loading, originalText) {
+    const btn = document.getElementById(btnId);
+    const txt = document.getElementById(textId);
+    if (!btn || !txt) return;
+    btn.disabled = loading;
+    btn.classList.toggle('loading', loading);
+    txt.innerHTML = loading
+        ? '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Aguarde...'
+        : originalText;
+}
+
+function setInputError(inputId, hasError) {
+    const el = document.getElementById(inputId);
+    if (!el) return;
+    el.classList.toggle('error', hasError);
+    if (hasError) el.classList.remove('success');
+}
+
+function showInlineError(containerId, msgId, message) {
+    const c = document.getElementById(containerId);
+    const m = document.getElementById(msgId);
+    if (!c || !m) return;
+    m.textContent = message;
+    c.classList.remove('hidden');
+    c.classList.add('flex');
+    // Shake no card
+    const card = c.closest('.glass');
+    if (card) {
+        card.classList.add('animate-shake');
+        setTimeout(() => card.classList.remove('animate-shake'), 400);
+    }
+}
+
+function hideInlineError(containerId) {
+    const c = document.getElementById(containerId);
+    if (c) { c.classList.add('hidden'); c.classList.remove('flex'); }
+}
+
+function toggleSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('sidebarOverlay');
+    sidebar.classList.toggle('-left-72');
+    sidebar.classList.toggle('left-0');
+    overlay.classList.toggle('hidden');
+}
+
+// ─────────────────────────────────────────────────────────
+// AUTH — TROCA ENTRE LOGIN E REGISTRO
+// ─────────────────────────────────────────────────────────
+function showRegister() {
+    document.getElementById('loginCard').classList.add('hidden');
+    document.getElementById('registerCard').classList.remove('hidden');
+    document.getElementById('registerCard').classList.add('animate-slide-up');
+    hideInlineError('regError');
+    document.getElementById('regUsername').focus();
+}
+
+function showLogin() {
+    document.getElementById('registerCard').classList.add('hidden');
+    document.getElementById('loginCard').classList.remove('hidden');
+    document.getElementById('loginCard').classList.add('animate-slide-up');
+    hideInlineError('loginError');
+    document.getElementById('loginUsername').focus();
+}
+
+// ─────────────────────────────────────────────────────────
+// AUTH — LOGIN
+// ─────────────────────────────────────────────────────────
+async function handleLogin() {
+    const username = document.getElementById('loginUsername').value.trim();
+    const password = document.getElementById('loginPassword').value;
+
+    hideInlineError('loginError');
+    setInputError('loginUsername', false);
+    setInputError('loginPassword', false);
+
+    // Validação frontend
+    if (!username) {
+        setInputError('loginUsername', true);
+        showInlineError('loginError', 'loginErrorMsg', 'Preencha o utilizador.');
+        document.getElementById('loginUsername').focus();
+        return;
+    }
+    if (!password) {
+        setInputError('loginPassword', true);
+        showInlineError('loginError', 'loginErrorMsg', 'Preencha a senha.');
+        document.getElementById('loginPassword').focus();
+        return;
+    }
+
+    setButtonLoading('loginBtn', 'loginBtnText', true);
+    const removeLoading = showLoadingToast('A autenticar...');
+
+    try {
+        const response = await fetch(`${API_BASE}/api/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+        });
+
+        const data = await response.json();
+        removeLoading();
+
+        if (response.ok && data.token) {
+            // Sucesso
+            state.token = data.token;
+            localStorage.setItem('openbot_token', data.token);
+            showToast(`Bem-vindo, ${escapeHtml(username)}!`, 'success');
+            await loadUserProfile();
+        } else {
+            // Erro da API
+            const msg = data.error || 'Credenciais inválidas';
+            setInputError('loginUsername', true);
+            setInputError('loginPassword', true);
+            showInlineError('loginError', 'loginErrorMsg', msg);
+            showToast(msg, 'error');
+            document.getElementById('loginPassword').value = '';
+            document.getElementById('loginPassword').focus();
+        }
+    } catch (err) {
+        removeLoading();
+        const msg = 'Sem conexão com o servidor. Verifique o backend.';
+        showInlineError('loginError', 'loginErrorMsg', msg);
+        showToast(msg, 'error', { duration: 6000 });
+        console.error('[Login]', err);
+    } finally {
+        setButtonLoading('loginBtn', 'loginBtnText', false, 'Entrar no Sistema');
+    }
+}
+
+// ─────────────────────────────────────────────────────────
+// AUTH — REGISTRO
+// ─────────────────────────────────────────────────────────
+
+// Validação de senha em tempo real
+document.addEventListener('DOMContentLoaded', () => {
+    const regPwd = document.getElementById('regPassword');
+    if (regPwd) {
+        regPwd.addEventListener('focus', () => {
+            document.getElementById('passwordHints').classList.remove('hidden');
+        });
+        regPwd.addEventListener('input', updatePasswordHints);
+    }
+
+    // Enter nos campos de login
+    ['loginUsername','loginPassword'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('keydown', e => { if (e.key==='Enter') handleLogin(); });
+    });
+    ['regUsername','regEmail','regPassword'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('keydown', e => { if (e.key==='Enter') handleRegister(); });
+    });
+});
+
+function updatePasswordHints() {
+    const pwd = document.getElementById('regPassword').value;
+    const checks = {
+        'hint-len':   pwd.length >= 8,
+        'hint-upper': /[A-Z]/.test(pwd),
+        'hint-lower': /[a-z]/.test(pwd),
+        'hint-num':   /\d/.test(pwd),
+    };
+    Object.entries(checks).forEach(([id, ok]) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.className = `text-[10px] flex items-center gap-1 ${ok ? 'text-emerald-400' : 'text-slate-500'}`;
+        el.querySelector('i').className = `fa-solid ${ok ? 'fa-check text-emerald-400' : 'fa-circle text-[6px]'}`;
+    });
+}
+
+async function handleRegister() {
+    const username = document.getElementById('regUsername').value.trim();
+    const email    = document.getElementById('regEmail').value.trim();
+    const password = document.getElementById('regPassword').value;
+
+    hideInlineError('regError');
+    ['regUsername','regEmail','regPassword'].forEach(id => setInputError(id, false));
+
+    // Validações
+    if (!username) {
+        setInputError('regUsername', true);
+        showInlineError('regError','regErrorMsg','Preencha o utilizador.');
+        return;
+    }
+    if (username.length < 3) {
+        setInputError('regUsername', true);
+        showInlineError('regError','regErrorMsg','Utilizador deve ter no mínimo 3 caracteres.');
+        return;
+    }
+    if (!email || !email.includes('@')) {
+        setInputError('regEmail', true);
+        showInlineError('regError','regErrorMsg','Email inválido.');
+        return;
+    }
+    if (!password || password.length < 8) {
+        setInputError('regPassword', true);
+        showInlineError('regError','regErrorMsg','Senha deve ter no mínimo 8 caracteres.');
+        return;
+    }
+
+    setButtonLoading('regBtn', 'regBtnText', true);
+    const removeLoading = showLoadingToast('A criar conta...');
+
+    try {
+        const response = await fetch(`${API_BASE}/api/auth/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, email, password })
+        });
+
+        const data = await response.json();
+        removeLoading();
+
+        if (response.ok) {
+            showToast('Conta criada! Faça login agora.', 'success', { duration: 4000 });
+            // Preenche login automaticamente e volta para tela de login
+            showLogin();
+            document.getElementById('loginUsername').value = username;
+            document.getElementById('loginPassword').value = '';
+            document.getElementById('loginPassword').focus();
+        } else {
+            const msg = data.error || 'Erro ao criar conta';
+            showInlineError('regError','regErrorMsg', msg);
+            showToast(msg, 'error');
+        }
+    } catch (err) {
+        removeLoading();
+        const msg = 'Sem conexão com o servidor.';
+        showInlineError('regError','regErrorMsg', msg);
+        showToast(msg, 'error', { duration: 6000 });
+        console.error('[Register]', err);
+    } finally {
+        setButtonLoading('regBtn', 'regBtnText', false, 'Criar Conta');
+    }
+}
+
+// ─────────────────────────────────────────────────────────
+// PERFIL E UNLOCK DA UI
+// ─────────────────────────────────────────────────────────
+async function loadUserProfile() {
+    const removeLoading = showLoadingToast('Carregando perfil...');
+    try {
+        const response = await fetch(`${API_BASE}/api/user/profile`, {
+            headers: { 'Authorization': `Bearer ${state.token}` }
+        });
+        const data = await response.json();
+        removeLoading();
+
+        if (data.status === 'success') {
+            state.user = data.user;
+            unlockUI(data);
+        } else {
+            showToast('Sessão expirada. Faça login novamente.', 'warning');
+            handleLogout();
+        }
+    } catch (err) {
+        removeLoading();
+        showToast('Erro ao carregar perfil. Verifique o servidor.', 'error');
+        handleLogout();
+        console.error('[Profile]', err);
+    }
+}
+
+function unlockUI(profileData) {
+    // FIX: esconde o overlay corretamente
+    const overlay = document.getElementById('authOverlay');
+    overlay.style.opacity = '0';
+    overlay.style.pointerEvents = 'none';
+    setTimeout(() => overlay.style.display = 'none', 300);
+
+    // Mostra chat e perfil
+    document.getElementById('chatView').classList.remove('hidden');
+    document.getElementById('userSection').classList.remove('hidden');
+    document.getElementById('messageInput').disabled  = false;
+    document.getElementById('sendBtn').disabled       = false;
+
+    // Preenche dados do usuário
+    document.getElementById('profileName').innerText  = state.user.username;
+    document.getElementById('profileEmail').innerText = state.user.email || '';
+    document.getElementById('avatar').innerText       = state.user.username.charAt(0).toUpperCase();
+
+    // Provider info
+    if (profileData?.provider) {
+        document.getElementById('providerLabel').innerText =
+            `${profileData.provider.active} · ${profileData.provider.model}`;
+    }
+
+    // Mensagem de boas-vindas no chat
+    chatBox.innerHTML = '';
+    appendBotMessage(
+        `Olá, **${state.user.username}**! Pronto para ajudar. O que precisa hoje?`,
+        null
+    );
+
+    document.getElementById('messageInput').focus();
+}
+
+function handleLogout() {
+    const removeLoading = showLoadingToast('A sair...');
+    try {
+        if (state.token) {
+            fetch(`${API_BASE}/api/auth/logout`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${state.token}` }
+            }).catch(() => {});
+        }
+    } finally {
+        localStorage.removeItem('openbot_token');
+        state.token = null;
+        state.user  = null;
+
+        const overlay = document.getElementById('authOverlay');
+        overlay.style.display = 'flex';
+        overlay.style.opacity = '1';
+        overlay.style.pointerEvents = '';
+
+        document.getElementById('chatView').classList.add('hidden');
+        document.getElementById('pageViewContainer').classList.add('hidden');
+        document.getElementById('userSection').classList.add('hidden');
+        document.getElementById('messageInput').disabled = true;
+        document.getElementById('sendBtn').disabled      = true;
+
+        // Volta para tela de login
+        showLogin();
+        removeLoading();
+        showToast('Sessão encerrada.', 'info', { duration: 2500 });
+    }
+}
+
+// ─────────────────────────────────────────────────────────
+// CHAT — LIMPAR HISTÓRICO
+// ─────────────────────────────────────────────────────────
+async function clearChatHistory() {
+    if (!state.token) return;
+    const removeLoading = showLoadingToast('Limpando conversa...');
+    try {
+        await fetch(`${API_BASE}/api/chat/clear`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${state.token}` }
+        });
+        removeLoading();
+        document.getElementById('chatBox').innerHTML = '';
+        appendBotMessage('Nova conversa iniciada. Como posso ajudar?', null);
+        switchView('chat');
+        showToast('Histórico de conversa limpo.', 'success', { duration: 2500 });
+    } catch (err) {
+        removeLoading();
+        showToast('Erro ao limpar conversa.', 'error');
+    }
+    if (window.innerWidth < 768) toggleSidebar();
+}
+
+// ─────────────────────────────────────────────────────────
+// CHAT — MENSAGENS
+// ─────────────────────────────────────────────────────────
+const chatBox = document.getElementById('chatBox');
+
+function renderMarkdownSimple(text) {
+    // Negrito simples **texto**
+    return escapeHtml(text)
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/`(.+?)`/g, '<code class="bg-slate-700/50 px-1 rounded text-xs">$1</code>');
+}
+
+function appendUserMessage(text) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'flex justify-end animate-fade-in mb-3';
+    wrapper.innerHTML = `
+        <div class="max-w-[82%] bg-blue-600 rounded-2xl rounded-tr-none px-4 py-3 text-white">
+            <div class="text-sm whitespace-pre-wrap">${escapeHtml(text)}</div>
+        </div>`;
+    chatBox.appendChild(wrapper);
+    chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+function appendBotMessage(text, metadata) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'flex justify-start animate-fade-in mb-3';
+    const metaHtml = metadata ? `
+        <div class="mt-2 pt-2 border-t border-white/10 text-[10px] text-slate-500 flex gap-3 flex-wrap">
+            ${metadata.provider ? `<span><i class="fa-solid fa-microchip mr-1"></i>${escapeHtml(metadata.provider)}</span>` : ''}
+            <span><i class="fa-solid fa-wrench mr-1"></i>${metadata.tools_used || 0} tools</span>
+            <span><i class="fa-regular fa-clock mr-1"></i>${metadata.time || 0}s</span>
+            <span><i class="fa-solid fa-shoe-prints mr-1"></i>${metadata.steps || 0} steps</span>
+        </div>` : '';
+    wrapper.innerHTML = `
+        <div class="max-w-[85%] glass rounded-2xl rounded-tl-none px-4 py-3 text-slate-200">
+            <div class="text-sm whitespace-pre-wrap leading-relaxed">${renderMarkdownSimple(text)}</div>
+            ${metaHtml}
+        </div>`;
+    chatBox.appendChild(wrapper);
+    chatBox.scrollTop = chatBox.scrollHeight;
+    return wrapper;
+}
+
+async function sendMessage() {
+    const text = document.getElementById('messageInput').value.trim();
+    if (!text || !state.token) return;
+
+    document.getElementById('messageInput').value = '';
+    document.getElementById('messageInput').style.height = 'auto';
+    appendUserMessage(text);
+
+    const indicator = document.getElementById('typingIndicator');
+    indicator.classList.remove('hidden');
+    document.getElementById('modeDisplay').innerText =
+        document.getElementById('chatMode').value === 'stream' ? 'Streaming' : 'Normal';
+
+    try {
+        if (document.getElementById('chatMode').value === 'stream') {
+            await sendStreamMessage(text);
+        } else {
+            await sendNormalMessage(text);
+        }
+    } catch (err) {
+        appendBotMessage(`Erro: ${err.message}`, null);
+        showToast(`Falha ao enviar mensagem: ${err.message}`, 'error');
+    } finally {
+        indicator.classList.add('hidden');
+    }
+}
+
+async function sendNormalMessage(message) {
+    const response = await fetch(`${API_BASE}/api/chat`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${state.token}`
+        },
+        body: JSON.stringify({ message })
+    });
+
+    if (response.status === 401) { handleLogout(); return; }
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    const data = await response.json();
+    let reply = '', metadata = null;
+
+    if (data.responses?.[0]) {
+        reply    = data.responses[0].response || '';
+        metadata = {
+            tools_used: data.responses[0].tools_used,
+            steps:      data.responses[0].steps,
+            time:       data.responses[0].time,
+            provider:   data.provider || data.responses[0].provider
+        };
+    } else {
+        reply = data.message || JSON.stringify(data);
+    }
+
+    appendBotMessage(reply, metadata);
+}
+
+async function sendStreamMessage(message) {
+    const response = await fetch(`${API_BASE}/api/chat/stream`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${state.token}`
+        },
+        body: JSON.stringify({ message })
+    });
+
+    if (response.status === 401) { handleLogout(); return; }
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    // Cria bolha vazia que será preenchida
+    const wrapper = document.createElement('div');
+    wrapper.className = 'flex justify-start animate-fade-in mb-3';
+    const bubble = document.createElement('div');
+    bubble.className = 'max-w-[85%] glass rounded-2xl rounded-tl-none px-4 py-3 text-slate-200';
+    const content = document.createElement('div');
+    content.className = 'text-sm whitespace-pre-wrap leading-relaxed';
+    content.innerText = '▋';
+    bubble.appendChild(content);
+    wrapper.appendChild(bubble);
+    chatBox.appendChild(wrapper);
+
+    const reader  = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '', fullText = '';
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+                const d = JSON.parse(line.slice(6));
+                if (d.type === 'final') {
+                    fullText = d.response;
+                    content.innerHTML = renderMarkdownSimple(fullText);
+                    if (d.tools_used > 0) {
+                        const metaDiv = document.createElement('div');
+                        metaDiv.className = 'mt-2 pt-2 border-t border-white/10 text-[10px] text-slate-500 flex gap-3 flex-wrap';
+                        metaDiv.innerHTML = `
+                            ${d.provider ? `<span><i class="fa-solid fa-microchip mr-1"></i>${escapeHtml(d.provider)}</span>` : ''}
+                            <span><i class="fa-solid fa-wrench mr-1"></i>${d.tools_used} tools</span>
+                            <span><i class="fa-regular fa-clock mr-1"></i>${d.time}s</span>
+                            <span><i class="fa-solid fa-shoe-prints mr-1"></i>${d.steps} steps</span>
+                        `;
+                        bubble.appendChild(metaDiv);
+                    }
+                } else if (d.chunk) {
+                    fullText += d.chunk;
+                    content.innerHTML = renderMarkdownSimple(fullText) + ' ▋';
+                }
+            } catch (e) { /* ignora chunks inválidos */ }
+        }
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
+}
+
+// ─────────────────────────────────────────────────────────
+// NAVEGAÇÃO
+// ─────────────────────────────────────────────────────────
+async function switchView(view) {
+    state.currentView = view;
+
+    document.getElementById('chatView').classList.add('hidden');
+    document.getElementById('pageViewContainer').classList.add('hidden');
+
+    const navIds = ['chat','memory','works','llms'];
+    navIds.forEach(id => {
+        const el = document.getElementById(`nav-${id}`);
+        if (!el) return;
+        if (id === view) {
+            el.className = 'w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all nav-active';
+        } else {
+            el.className = 'w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all text-slate-400 hover:text-white hover:bg-white/5';
+        }
+    });
+
+    const titles = { chat:'Terminal de Chat', memory:'Base de Memória', works:'Workspaces', llms:'Provedores LLM' };
+    document.getElementById('viewTitle').innerText = titles[view] || view;
+
+    if (view === 'chat') {
+        document.getElementById('chatView').classList.remove('hidden');
+    } else {
+        const container = document.getElementById('pageViewContainer');
+        container.classList.remove('hidden');
+        container.innerHTML = `
+            <div class="flex flex-col items-center justify-center h-48 text-slate-500">
+                <i class="fa-solid fa-circle-notch fa-spin text-2xl mb-3"></i>
+                <p class="text-sm">Carregando ${view}...</p>
+            </div>`;
+        await loadPage(view === 'memory' ? 'memoria' : view, container);
+    }
+
+    if (window.innerWidth < 768) toggleSidebar();
+}
+
+const pageCache = {};
+async function loadPage(pageName, container) {
+    try {
+        if (pageCache[pageName]) {
+            container.innerHTML = pageCache[pageName];
+            return;
+        }
+        const response = await fetch(`${PAGES_PATH}/${pageName}.html`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const html     = await response.text();
+        const body     = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+        const content  = body ? body[1] : html;
+        pageCache[pageName] = content;
+        container.innerHTML = content;
+    } catch (err) {
+        container.innerHTML = `
+            <div class="text-center py-12 text-slate-500">
+                <i class="fa-solid fa-triangle-exclamation text-3xl mb-3 text-amber-500"></i>
+                <p class="text-sm">Página <strong>${pageName}.html</strong> não encontrada.</p>
+                <p class="text-xs text-slate-600 mt-1">${err.message}</p>
+            </div>`;
+        showToast(`Não foi possível carregar "${pageName}"`, 'warning');
+    }
+}
+
+// ─────────────────────────────────────────────────────────
+// STATUS DO SERVIDOR
+// ─────────────────────────────────────────────────────────
+async function checkServerStatus() {
+    const pingEl = document.getElementById('connectionPing');
+    const msEl   = document.getElementById('pingMs');
+    try {
+        const start   = Date.now();
+        const res     = await fetch(`${API_BASE}/`, { method: 'GET', signal: AbortSignal.timeout(5000) });
+        const latency = Date.now() - start;
+        if (res.ok) {
+            pingEl.innerHTML = '<span class="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span> Online';
+            pingEl.className = 'text-emerald-500 font-mono flex items-center gap-1 text-[10px]';
+            msEl.innerText   = `${latency}ms`;
+        } else {
+            throw new Error(`HTTP ${res.status}`);
+        }
+    } catch {
+        pingEl.innerHTML = '<span class="w-1.5 h-1.5 bg-red-500 rounded-full"></span> Offline';
+        pingEl.className = 'text-red-500 font-mono flex items-center gap-1 text-[10px]';
+        msEl.innerText   = '';
+    }
+}
+
+// ─────────────────────────────────────────────────────────
+// INICIALIZAÇÃO
+// ─────────────────────────────────────────────────────────
+window.onload = async () => {
+    checkServerStatus();
+    setInterval(checkServerStatus, 30000);
+
+    // Auto-resize textarea
+    const msgInput = document.getElementById('messageInput');
+    msgInput.addEventListener('input', function() {
+        this.style.height = 'auto';
+        this.style.height = Math.min(this.scrollHeight, 128) + 'px';
+    });
+    msgInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    });
+
+    document.getElementById('chatMode').addEventListener('change', () => {
+        const mode = document.getElementById('chatMode').value;
+        document.getElementById('modeDisplay').innerText = mode === 'stream' ? 'Streaming' : 'Normal';
+    });
+
+    // FIX: token válido → entra direto; sem token → mostra login
+    if (state.token) {
+        showToast('Token encontrado. Validando sessão...', 'info', { duration: 2000 });
+        await loadUserProfile();
+    } else {
+        // Garante que o overlay está visível com opacidade correta
+        const overlay = document.getElementById('authOverlay');
+        overlay.style.display  = 'flex';
+        overlay.style.opacity  = '1';
+        overlay.style.pointerEvents = '';
+    }
+};
+</script>
+</body>
+</html>
