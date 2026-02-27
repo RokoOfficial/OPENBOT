@@ -1,12 +1,28 @@
-# OPENBOT 3.1
+# OPENBOT - Autonomous AI System
 
-**Assistente de IA com ferramentas, memória persistente e autenticação JWT.**
-
-Multi-provider (OpenAI · DeepSeek · Groq · Anthropic) · 40 ferramentas · Memória HGR · API REST assíncrona
+![OPENBOT](https://img.shields.io/badge/OPENBOT-black?style=flat-square) ![AI SYSTEM](https://img.shields.io/badge/AI%20SYSTEM-blue?style=flat-square) ![Python 3.8+](https://img.shields.io/badge/Python-3.8%2B-green?style=flat-square) ![License](https://img.shields.io/badge/License-Apache%202.0-yellow?style=flat-square)
 
 ---
 
-## 🚀 Início Rápido
+## 🚀 Overview
+
+OPENBOT is an advanced autonomous artificial intelligence system with natural language processing capabilities, persistent cognitive memory, and a modern web interface. The system is designed to offer intelligent and contextual interactions through a modular and scalable architecture. It supports multiple AI providers (OpenAI, DeepSeek, Groq, Anthropic), integrates 40 diverse tools, features a Hierarchical Generative Reasoning (HGR) memory system, and provides an asynchronous REST API.
+
+## ✨ Key Features
+
+*   **Modern Web Interface:** Responsive and elegant interface built with Flask and Tailwind CSS (via `WEB/index.html`).
+*   **Cognitive Memory (HGR):** Long-term memory system with semantic search using FAISS and a 3-level hierarchical structure for immediate, active, and persistent context management.
+*   **Secure Authentication:** Complete user authentication system using JWT and bcrypt for secure access to API endpoints.
+*   **Parallel Processing:** Optimized pipeline for multi-provider AI interactions and tool execution.
+*   **Multi-Provider Support:** Seamless integration with OpenAI, DeepSeek, Groq, and Anthropic APIs.
+*   **Extensive Toolset:** Access to 40 specialized tools across categories like Python, Shell, Network, Filesystem, Data, System, Crypto, Utility, and Memory.
+*   **Asynchronous REST API:** High-performance API built with Quart for efficient communication and real-time interactions.
+
+---
+
+## ⚡ Quick Start
+
+To get OPENBOT up and running, follow these simple steps:
 
 ```bash
 # 1. Instalar dependências
@@ -33,71 +49,79 @@ curl -X POST http://localhost:5000/api/chat \
 
 ---
 
-## 📂 Estrutura do Projeto
+## 📂 Project Structure
 
 ```text
-BOT/
-├── openbot.py          — Servidor principal (Quart + agent loop)
-├── HGR.py              — Sistema de memória hierárquica (3 níveis)
-├── auth_system.py      — Autenticação JWT + bcrypt
-├── config.py           — Configuração centralizada
-├── openbot_cors.py     — Entry point com CORS habilitado
-├── install.sh          — Script de instalação automática
-└── README.md           — Documentação técnica do BOT
-
-WEB/
-└── index.html          — Interface Web
-
-DOCUMENT/
-└── OPENBOT_Documentacao.docx — Documentação detalhada
+OPENBOT/
+├── BOT/
+│   ├── openbot.py          — Main server (Quart + agent loop)
+│   ├── HGR.py              — Hierarchical memory system (3 levels)
+│   ├── auth_system.py      — JWT + bcrypt authentication
+│   ├── config.py           — Centralized configuration
+│   ├── openbot_cors.py     — Entry point with CORS enabled
+│   └── install.sh          — Automatic installation script
+├── DOCUMENT/
+│   └── OPENBOT_Documentacao.docx — Detailed documentation
+├── WEB/
+│   └── index.html          — Web Interface
+├── LICENSE                 — Apache 2.0 License
+└── README.md               — Project overview and documentation
 ```
 
 ---
 
-## ⚙️ Variáveis de Ambiente
+## ⚙️ Environment Variables
+
+Configure OPENBOT using the following environment variables:
 
 | Variável | Descrição | Padrão |
 |---|---|---|
-| `OPENBOT_PROVIDER` | Provider ativo (`deepseek`, `groq`, `openai`, `anthropic`) | `deepseek` |
-| `OPENBOT_MODEL` | Modelo LLM | Padrão do provider |
-| `DEEPSEEK_API_KEY` | Chave DeepSeek | — |
-| `GROQ_API_KEY` | Chave Groq | — |
-| `OPENAI_API_KEY` | Chave OpenAI | — |
-| `ANTHROPIC_API_KEY` | Chave Anthropic | — |
-| `JWT_SECRET` | Segredo JWT (altere em produção!) | inseguro |
-| `OPENBOT_ENV` | Ambiente (`development`, `production`, `testing`) | `development` |
-| `OPENBOT_BASE_DIR` | Diretório de trabalho | `~/openbot_workspace` |
-| `PORT` | Porta do servidor | `5000` |
-| `CORS_ORIGINS` | Origens CORS permitidas | `*` |
+| `OPENBOT_PROVIDER` | Active provider (`deepseek`, `groq`, `openai`, `anthropic`) | `deepseek` |
+| `OPENBOT_MODEL` | LLM model | Provider's default |
+| `DEEPSEEK_API_KEY` | DeepSeek API Key | — |
+| `GROQ_API_KEY` | Groq API Key | — |
+| `OPENAI_API_KEY` | OpenAI API Key | — |
+| `ANTHROPIC_API_KEY` | Anthropic API Key | — |
+| `JWT_SECRET` | JWT Secret (change in production!) | insecure |
+| `OPENBOT_ENV` | Environment (`development`, `production`, `testing`) | `development` |
+| `OPENBOT_BASE_DIR` | Working directory | `~/openbot_workspace` |
+| `PORT` | Server port | `5000` |
+| `CORS_ORIGINS` | Allowed CORS origins | `*` |
 
 ---
 
 ## 🛠️ Endpoints
 
-### Públicos
-| Método | Rota | Descrição |
-|---|---|---|
-| POST | `/api/auth/register` | Registrar usuário |
-| POST | `/api/auth/login` | Login (retorna JWT) |
+OPENBOT exposes a comprehensive set of API endpoints:
 
-### Protegidos (requer `Authorization: Bearer <token>`)
+### Public Endpoints
+
 | Método | Rota | Descrição |
 |---|---|---|
-| POST | `/api/auth/logout` | Revogar token |
-| POST | `/api/chat` | Chat com resposta completa |
-| POST | `/api/chat/stream` | Chat com streaming SSE |
-| POST | `/api/chat/clear` | Limpar histórico de conversa |
-| GET  | `/api/provider/list` | Listar providers disponíveis |
-| POST | `/api/provider/switch` | Trocar provider em runtime |
-| GET  | `/api/tools/list` | Listar ferramentas |
-| POST | `/api/tools/execute/<nome>` | Executar ferramenta diretamente |
-| GET  | `/api/tools/history` | Histórico de execuções |
-| GET  | `/api/user/profile` | Perfil e estatísticas |
-| GET  | `/api/memory/stats` | Estatísticas de memória |
+| `POST` | `/api/auth/register` | Register a new user |
+| `POST` | `/api/auth/login` | User login (returns JWT) |
+
+### Protected Endpoints (requires `Authorization: Bearer <token>`)
+
+| Método | Rota | Descrição |
+|---|---|---|
+| `POST` | `/api/auth/logout` | Revoke JWT token |
+| `POST` | `/api/chat` | Chat with complete response |
+| `POST` | `/api/chat/stream` | Chat with SSE streaming |
+| `POST` | `/api/chat/clear` | Clear conversation history |
+| `GET`  | `/api/provider/list` | List available providers |
+| `POST` | `/api/provider/switch` | Switch provider at runtime |
+| `GET`  | `/api/tools/list` | List available tools |
+| `POST` | `/api/tools/execute/<name>` | Execute a specific tool directly |
+| `GET`  | `/api/tools/history` | Tool execution history |
+| `GET`  | `/api/user/profile` | User profile and statistics |
+| `GET`  | `/api/memory/stats` | Memory usage statistics |
 
 ---
 
-## 🧰 Ferramentas (40 total)
+## 🧰 Tools (40 total)
+
+OPENBOT integrates a rich set of tools for various operations:
 
 | Categoria | Ferramentas |
 |---|---|
@@ -113,17 +137,21 @@ DOCUMENT/
 
 ---
 
-## 🧠 Memória HGR (3 Níveis)
+## 🧠 HGR Memory (3 Levels)
+
+OPENBOT utilizes a Hierarchical Generative Reasoning (HGR) memory system:
 
 | Nível | Armazenamento | TTL | Uso |
 |---|---|---|---|
-| **Short-term** | RAM (deque) | 1 hora | Contexto imediato da sessão |
-| **Medium-term** | RAM (sessão) | 24 horas | Contexto da sessão ativa |
-| **Long-term** | SQLite | Permanente | Informações importantes entre sessões |
+| **Short-term** | RAM (deque) | 1 hour | Immediate session context |
+| **Medium-term** | RAM (session) | 24 hours | Active session context |
+| **Long-term** | SQLite | Permanent | Important information across sessions |
 
 ---
 
-## 📦 Dependências
+## 📦 Dependencies
+
+Key dependencies for OPENBOT include:
 
 ```text
 quart>=0.19.4
