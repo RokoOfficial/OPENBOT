@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://i.ibb.co/nqRrrZ78/file-0000000026187243a883fb6285a7b9ae.png" alt="OPENBOT Logo" width="300">
+  <img src="assets/logo.png" alt="OPENBOT Logo" width="400">
 </p>
 
 # OPENBOT - Autonomous AI System
