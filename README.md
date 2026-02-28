@@ -1,3 +1,9 @@
+<p align="center">
+  <a href="https://ibb.co/TDrccp4q">
+    <img src="https://i.ibb.co/nqRrrZ78/file-0000000026187243a883fb6285a7b9ae.png" alt="OPENBOT Logo" border="0" width="200">
+  </a>
+</p>
+
 # OPENBOT - Autonomous AI System
 
 ![OPENBOT](https://img.shields.io/badge/OPENBOT-black?style=flat-square) ![AI SYSTEM](https://img.shields.io/badge/AI%20SYSTEM-blue?style=flat-square) ![Python 3.8+](https://img.shields.io/badge/Python-3.8%2B-green?style=flat-square) ![License](https://img.shields.io/badge/License-Apache%202.0-yellow?style=flat-square)
