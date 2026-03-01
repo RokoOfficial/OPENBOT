@@ -1,1169 +1,1278 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>OPENBOT v3.1 · Terminal Mobile</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap');
-
-        body {
-            font-family: 'Plus Jakarta Sans', sans-serif;
-            background: #020617;
-            color: #f1f5f9;
-            height: 100vh;
-            overflow: hidden;
-            touch-action: manipulation;
-        }
-
-        .glass {
-            background: rgba(30, 41, 59, 0.7);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        .glass-card {
-            background: rgba(30, 41, 59, 0.4);
-            backdrop-filter: blur(8px);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-        }
-
-        /* ── Auth overlay ── */
-        #authOverlay {
-            background: radial-gradient(circle at top, #1e293b 0%, #020617 100%);
-            z-index: 100;
-        }
-
-        /* ── Animações ── */
-        .animate-fade-in {
-            animation: fadeIn 0.25s ease-out both;
-        }
-        .animate-slide-up {
-            animation: slideUp 0.3s cubic-bezier(.16,1,.3,1) both;
-        }
-        .animate-shake {
-            animation: shake 0.4s ease-out;
-        }
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(8px); }
-            to   { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes slideUp {
-            from { opacity: 0; transform: translateY(20px) scale(.97); }
-            to   { opacity: 1; transform: translateY(0)   scale(1); }
-        }
-        @keyframes shake {
-            0%,100% { transform: translateX(0); }
-            20%      { transform: translateX(-8px); }
-            40%      { transform: translateX(8px); }
-            60%      { transform: translateX(-5px); }
-            80%      { transform: translateX(5px); }
-        }
-
-        /* ── Toast ── */
-        .toast {
-            display: flex;
-            align-items: flex-start;
-            gap: 10px;
-            padding: 12px 16px;
-            border-radius: 14px;
-            box-shadow: 0 8px 32px rgba(0,0,0,.45);
-            font-size: 13px;
-            font-weight: 500;
-            min-width: 260px;
-            max-width: 340px;
-            animation: toastIn .3s cubic-bezier(.16,1,.3,1) both;
-            border-left: 3px solid transparent;
-            backdrop-filter: blur(16px);
-        }
-        .toast.removing {
-            animation: toastOut .25s ease forwards;
-        }
-        @keyframes toastIn {
-            from { opacity:0; transform: translateX(30px) scale(.95); }
-            to   { opacity:1; transform: translateX(0)    scale(1);   }
-        }
-        @keyframes toastOut {
-            from { opacity:1; transform: translateX(0) scale(1); max-height:80px; }
-            to   { opacity:0; transform: translateX(30px) scale(.9); max-height:0; padding:0; margin:0; }
-        }
-        .toast.success { background:rgba(16,185,129,.15); border-color:#10b981; color:#a7f3d0; }
-        .toast.error   { background:rgba(239,68,68,.15);  border-color:#ef4444; color:#fca5a5; }
-        .toast.info    { background:rgba(59,130,246,.15); border-color:#3b82f6; color:#93c5fd; }
-        .toast.warning { background:rgba(245,158,11,.15); border-color:#f59e0b; color:#fcd34d; }
-        .toast.loading { background:rgba(99,102,241,.15); border-color:#6366f1; color:#c7d2fe; }
-        .toast-icon { font-size:16px; flex-shrink:0; margin-top:1px; }
-        .toast-body { flex:1; }
-        .toast-title { font-weight:700; font-size:12px; text-transform:uppercase; letter-spacing:.04em; opacity:.7; margin-bottom:2px; }
-        .toast-msg { line-height:1.4; }
-        .toast-close { opacity:.5; cursor:pointer; flex-shrink:0; font-size:12px; margin-top:1px; padding:2px; }
-        .toast-close:hover { opacity:1; }
-        .toast-progress {
-            position:absolute; bottom:0; left:0; height:2px;
-            border-radius:0 0 14px 14px;
-            transition: width linear;
-        }
-        .toast.success .toast-progress { background:#10b981; }
-        .toast.error   .toast-progress { background:#ef4444; }
-        .toast.info    .toast-progress { background:#3b82f6; }
-        .toast.warning .toast-progress { background:#f59e0b; }
-        .toast.loading .toast-progress { background:#6366f1; }
-
-        /* ── Input de auth com estado ── */
-        .auth-input {
-            width: 100%;
-            background: rgba(15,23,42,.6);
-            border: 1.5px solid rgba(255,255,255,.08);
-            border-radius: 16px;
-            padding: 14px 14px 14px 44px;
-            outline: none;
-            color: #f1f5f9;
-            font-size: 14px;
-            transition: border-color .2s, box-shadow .2s;
-        }
-        .auth-input:focus {
-            border-color: #3b82f6;
-            box-shadow: 0 0 0 3px rgba(59,130,246,.2);
-        }
-        .auth-input.error {
-            border-color: #ef4444;
-            box-shadow: 0 0 0 3px rgba(239,68,68,.15);
-        }
-        .auth-input.success {
-            border-color: #10b981;
-        }
-
-        /* ── Botão com estado de loading ── */
-        .btn-primary {
-            width:100%; padding:14px;
-            border-radius:16px;
-            font-weight:700; font-size:14px;
-            background: #2563eb;
-            color: #fff;
-            transition: background .2s, transform .1s, opacity .2s;
-            position: relative;
-            overflow: hidden;
-        }
-        .btn-primary:hover:not(:disabled)  { background: #3b82f6; }
-        .btn-primary:active:not(:disabled) { transform: scale(.97); }
-        .btn-primary:disabled { opacity:.6; cursor:not-allowed; }
-        .btn-primary.loading::after {
-            content:'';
-            position:absolute; inset:0;
-            background: rgba(0,0,0,.25);
-        }
-
-        /* ── Nav ── */
-        .nav-active {
-            background: rgba(59,130,246,.15);
-            color: #60a5fa;
-            border-left: 3px solid #3b82f6;
-        }
-
-        /* ── Typing dots ── */
-        .typing-dot { animation: tdot 1.4s infinite ease-in-out both; }
-        .typing-dot:nth-child(1) { animation-delay: -.32s; }
-        .typing-dot:nth-child(2) { animation-delay: -.16s; }
-        @keyframes tdot {
-            0%,80%,100% { transform:scale(0); opacity:.3; }
-            40%          { transform:scale(1); opacity:1; }
-        }
-
-        /* ── Scrollbar ── */
-        .scrollbar-thin::-webkit-scrollbar { width:4px; }
-        .scrollbar-thin::-webkit-scrollbar-track { background:#1e293b; }
-        .scrollbar-thin::-webkit-scrollbar-thumb { background:#475569; border-radius:20px; }
-
-        .workspace-card { transition: all .2s ease; }
-        .workspace-card:hover { transform:translateY(-2px); border-color:#3b82f6; }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>OPENBOT v4.0</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:#080c14; --surface:#0d1117; --card:#111827;
+  --border:rgba(255,255,255,0.06); --border2:rgba(255,255,255,0.10);
+  --accent:#3b82f6; --green:#10b981; --amber:#f59e0b; --red:#ef4444;
+  --text:#e2e8f0; --muted:#64748b;
+}
+*{box-sizing:border-box}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);height:100vh;overflow:hidden}
+.mono{font-family:'JetBrains Mono',monospace}
+.glass{background:rgba(13,17,23,.9);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid var(--border2)}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px}
+.card:hover{border-color:var(--border2)}
+#authOverlay{background:radial-gradient(ellipse at 30% 20%,#1a2744 0%,#080c14 60%);z-index:100}
+.anim-up{animation:slideUp .3s cubic-bezier(.16,1,.3,1) both}
+.anim-in{animation:fadeIn .25s ease-out both}
+@keyframes slideUp{from{opacity:0;transform:translateY(20px) scale(.97)}to{opacity:1;transform:none}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+.tdot{animation:tdot 1.4s infinite ease-in-out both}
+.tdot:nth-child(1){animation-delay:-.32s}.tdot:nth-child(2){animation-delay:-.16s}
+@keyframes tdot{0%,80%,100%{transform:scale(0);opacity:.3}40%{transform:scale(1);opacity:1}}
+@keyframes pulseDot{0%,100%{opacity:1}50%{opacity:.4}}
+.toast{display:flex;align-items:flex-start;gap:10px;padding:12px 16px;border-radius:14px;
+  box-shadow:0 8px 40px rgba(0,0,0,.6);font-size:13px;font-weight:500;
+  min-width:260px;max-width:340px;animation:toastIn .3s cubic-bezier(.16,1,.3,1) both;
+  border-left:3px solid transparent;backdrop-filter:blur(20px);position:relative;overflow:hidden}
+.toast.removing{animation:toastOut .25s ease forwards}
+@keyframes toastIn{from{opacity:0;transform:translateX(30px) scale(.95)}to{opacity:1;transform:none}}
+@keyframes toastOut{from{opacity:1;max-height:80px}to{opacity:0;transform:translateX(30px);max-height:0;padding:0;margin:0}}
+.toast.success{background:rgba(16,185,129,.12);border-color:#10b981;color:#a7f3d0}
+.toast.error{background:rgba(239,68,68,.12);border-color:#ef4444;color:#fca5a5}
+.toast.info{background:rgba(59,130,246,.12);border-color:#3b82f6;color:#93c5fd}
+.toast.warning{background:rgba(245,158,11,.12);border-color:#f59e0b;color:#fcd34d}
+.toast.loading{background:rgba(99,102,241,.12);border-color:#6366f1;color:#c7d2fe}
+.tprog{position:absolute;bottom:0;left:0;height:2px;border-radius:0 0 14px 14px;transition:width linear}
+.toast.success .tprog{background:#10b981}.toast.error .tprog{background:#ef4444}
+.toast.info .tprog{background:#3b82f6}.toast.warning .tprog{background:#f59e0b}.toast.loading .tprog{background:#6366f1}
+.auth-input{width:100%;background:rgba(8,12,20,.7);border:1.5px solid rgba(255,255,255,.08);
+  border-radius:14px;padding:14px 14px 14px 44px;outline:none;color:var(--text);font-size:14px;
+  transition:border-color .2s,box-shadow .2s}
+.auth-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.18)}
+.auth-input.err{border-color:var(--red);box-shadow:0 0 0 3px rgba(239,68,68,.15)}
+.btn-primary{width:100%;padding:14px;border-radius:14px;font-weight:700;font-size:14px;
+  background:var(--accent);color:#fff;transition:background .2s,transform .1s;position:relative}
+.btn-primary:hover:not(:disabled){background:#2563eb}
+.btn-primary:active:not(:disabled){transform:scale(.97)}
+.btn-primary:disabled{opacity:.5;cursor:not-allowed}
+.bsm{padding:7px 13px;border-radius:10px;font-size:12px;font-weight:600;transition:all .15s;cursor:pointer}
+.b-blue{background:rgba(59,130,246,.18);color:#93c5fd;border:1px solid rgba(59,130,246,.3)}
+.b-blue:hover{background:rgba(59,130,246,.3)}
+.b-green{background:rgba(16,185,129,.18);color:#6ee7b7;border:1px solid rgba(16,185,129,.3)}
+.b-green:hover{background:rgba(16,185,129,.3)}
+.b-red{background:rgba(239,68,68,.18);color:#fca5a5;border:1px solid rgba(239,68,68,.3)}
+.b-red:hover{background:rgba(239,68,68,.3)}
+.b-amber{background:rgba(245,158,11,.18);color:#fcd34d;border:1px solid rgba(245,158,11,.3)}
+.b-amber:hover{background:rgba(245,158,11,.3)}
+.b-ghost{background:transparent;color:#94a3b8;border:1px solid var(--border)}
+.b-ghost:hover{border-color:var(--border2);color:var(--text)}
+.nav-item{transition:all .15s;border-left:2px solid transparent}
+.nav-active{background:rgba(59,130,246,.12);color:#60a5fa;border-left-color:#3b82f6}
+.nav-item:not(.nav-active):hover{background:rgba(255,255,255,.04);color:var(--text)}
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#1e293b;border-radius:4px}
+.badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;
+  font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+.bg-green{background:rgba(16,185,129,.15);color:#6ee7b7;border:1px solid rgba(16,185,129,.3)}
+.bg-red{background:rgba(239,68,68,.15);color:#fca5a5;border:1px solid rgba(239,68,68,.3)}
+.bg-blue{background:rgba(59,130,246,.15);color:#93c5fd;border:1px solid rgba(59,130,246,.3)}
+.bg-amber{background:rgba(245,158,11,.15);color:#fcd34d;border:1px solid rgba(245,158,11,.3)}
+.bg-slate{background:rgba(100,116,139,.15);color:#94a3b8;border:1px solid rgba(100,116,139,.3)}
+.bg-purple{background:rgba(168,85,247,.15);color:#c4b5fd;border:1px solid rgba(168,85,247,.3)}
+.imp-bar{height:3px;background:rgba(255,255,255,.08);border-radius:2px;overflow:hidden}
+.imp-fill{height:100%;border-radius:2px;transition:width .3s}
+.sdot{width:7px;height:7px;border-radius:50%;display:inline-block;flex-shrink:0}
+.sdot.active{background:#10b981;box-shadow:0 0 6px #10b981;animation:pulseDot 2s infinite}
+.sdot.paused{background:#f59e0b}.sdot.error{background:#ef4444}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.65);backdrop-filter:blur(6px);
+  z-index:200;display:flex;align-items:center;justify-content:center;padding:16px}
+.modal-box{background:var(--surface);border:1px solid var(--border2);border-radius:20px;
+  padding:24px;width:100%;max-width:480px;max-height:90vh;overflow-y:auto;
+  box-shadow:0 24px 60px rgba(0,0,0,.7)}
+.finput{width:100%;background:rgba(8,12,20,.7);border:1.5px solid var(--border2);
+  border-radius:12px;padding:10px 13px;color:var(--text);font-size:13px;outline:none;
+  transition:border-color .2s,box-shadow .2s}
+.finput:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.15)}
+textarea.finput{resize:none}
+.flabel{font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;display:block}
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:12px;padding:48px 24px;color:var(--muted);text-align:center}
+.pcard{transition:all .2s;cursor:default}
+.pcard:hover{border-color:var(--border2);transform:translateY(-1px)}
+.pcard.active-p{border-color:var(--accent)!important;background:rgba(59,130,246,.05)!important}
+.mchip{cursor:pointer;transition:all .15s}
+.mchip:hover{border-color:rgba(59,130,246,.5)!important;background:rgba(59,130,246,.1)!important}
+.mchip.sel{background:rgba(59,130,246,.2)!important;border-color:var(--accent)!important;color:#60a5fa!important}
+</style>
 </head>
 <body class="flex overflow-hidden">
 
-<!-- ══════════════════════════════════════════════════════════
-     OVERLAY DE LOGIN
-══════════════════════════════════════════════════════════ -->
+<!-- AUTH OVERLAY -->
 <div id="authOverlay" class="fixed inset-0 flex items-center justify-center p-5 z-[100]">
-    <div class="w-full max-w-sm">
-
-        <!-- Card de login -->
-        <div id="loginCard" class="glass p-8 rounded-[2rem] shadow-2xl animate-slide-up">
-            <div class="flex flex-col items-center mb-7">
-                <div class="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mb-4 shadow-lg shadow-blue-600/30">
-                    <i class="fa-solid fa-robot text-2xl text-white"></i>
-                </div>
-                <h2 class="text-xl font-bold">OPENBOT v3.1</h2>
-                <p class="text-xs text-slate-500 mt-1">Autenticação de terminal</p>
-            </div>
-
-            <div class="space-y-3">
-                <div class="relative">
-                    <i class="fa-solid fa-user absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm pointer-events-none"></i>
-                    <input type="text" id="loginUsername" placeholder="Utilizador"
-                        class="auth-input" autocomplete="username" autocorrect="off" autocapitalize="none">
-                </div>
-                <div class="relative">
-                    <i class="fa-solid fa-lock absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm pointer-events-none"></i>
-                    <input type="password" id="loginPassword" placeholder="Palavra-passe"
-                        class="auth-input" autocomplete="current-password">
-                </div>
-
-                <!-- Mensagem de erro inline -->
-                <div id="loginError" class="hidden text-xs text-red-400 flex items-center gap-2 px-1">
-                    <i class="fa-solid fa-circle-exclamation"></i>
-                    <span id="loginErrorMsg"></span>
-                </div>
-
-                <button id="loginBtn" onclick="handleLogin()" class="btn-primary mt-1">
-                    <span id="loginBtnText">Entrar no Sistema</span>
-                </button>
-            </div>
-
-            <p class="mt-5 text-xs text-center text-slate-500">
-                Sem conta?
-                <a href="#" onclick="showRegister()" class="text-blue-400 hover:underline font-medium">Criar nova conta</a>
-            </p>
+  <div class="w-full max-w-sm">
+    <!-- Login -->
+    <div id="loginCard" class="glass p-8 rounded-[22px] shadow-2xl anim-up">
+      <div class="flex flex-col items-center mb-7">
+        <div class="w-16 h-16 rounded-2xl bg-blue-600 flex items-center justify-center mb-4" style="box-shadow:0 8px 32px rgba(59,130,246,.4)">
+          <i class="fa-solid fa-bolt text-2xl text-white"></i>
         </div>
-
-        <!-- Card de registro (oculto inicialmente) -->
-        <div id="registerCard" class="glass p-8 rounded-[2rem] shadow-2xl animate-slide-up hidden">
-            <div class="flex items-center gap-3 mb-6">
-                <button onclick="showLogin()" class="text-slate-400 hover:text-white transition-colors p-1">
-                    <i class="fa-solid fa-arrow-left"></i>
-                </button>
-                <div>
-                    <h3 class="font-bold text-lg">Criar conta</h3>
-                    <p class="text-xs text-slate-500">Preencha os dados abaixo</p>
-                </div>
-            </div>
-
-            <div class="space-y-3">
-                <div class="relative">
-                    <i class="fa-solid fa-user absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm pointer-events-none"></i>
-                    <input type="text" id="regUsername" placeholder="Utilizador"
-                        class="auth-input" autocorrect="off" autocapitalize="none">
-                </div>
-                <div class="relative">
-                    <i class="fa-solid fa-envelope absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm pointer-events-none"></i>
-                    <input type="email" id="regEmail" placeholder="Email"
-                        class="auth-input" autocomplete="email">
-                </div>
-                <div class="relative">
-                    <i class="fa-solid fa-lock absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm pointer-events-none"></i>
-                    <input type="password" id="regPassword" placeholder="Senha (min. 8 chars)"
-                        class="auth-input" autocomplete="new-password">
-                </div>
-
-                <!-- Requisitos de senha -->
-                <div id="passwordHints" class="hidden grid grid-cols-2 gap-1 px-1">
-                    <span id="hint-len"  class="text-[10px] text-slate-500 flex items-center gap-1"><i class="fa-solid fa-circle text-[6px]"></i> 8+ caracteres</span>
-                    <span id="hint-upper"class="text-[10px] text-slate-500 flex items-center gap-1"><i class="fa-solid fa-circle text-[6px]"></i> Maiúscula</span>
-                    <span id="hint-lower"class="text-[10px] text-slate-500 flex items-center gap-1"><i class="fa-solid fa-circle text-[6px]"></i> Minúscula</span>
-                    <span id="hint-num"  class="text-[10px] text-slate-500 flex items-center gap-1"><i class="fa-solid fa-circle text-[6px]"></i> Número</span>
-                </div>
-
-                <!-- Mensagem de erro inline -->
-                <div id="regError" class="hidden text-xs text-red-400 flex items-center gap-2 px-1">
-                    <i class="fa-solid fa-circle-exclamation"></i>
-                    <span id="regErrorMsg"></span>
-                </div>
-
-                <button id="regBtn" onclick="handleRegister()" class="btn-primary mt-1">
-                    <span id="regBtnText">Criar Conta</span>
-                </button>
-            </div>
+        <h2 class="text-xl font-bold">OPENBOT v4.0</h2>
+        <p class="text-xs text-slate-500 mt-1 mono">HGR-First · Memória Persistente</p>
+      </div>
+      <div class="space-y-3">
+        <div class="relative">
+          <i class="fa-solid fa-user absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm pointer-events-none"></i>
+          <input type="text" id="loginUsername" placeholder="Utilizador" class="auth-input" autocomplete="username" autocorrect="off" autocapitalize="none">
         </div>
-
+        <div class="relative">
+          <i class="fa-solid fa-lock absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm pointer-events-none"></i>
+          <input type="password" id="loginPassword" placeholder="Palavra-passe" class="auth-input" autocomplete="current-password">
+        </div>
+        <div id="loginError" class="hidden text-xs text-red-400 items-center gap-2 px-1">
+          <i class="fa-solid fa-circle-exclamation"></i>
+          <span id="loginErrorMsg"></span>
+        </div>
+        <button id="loginBtn" onclick="handleLogin()" class="btn-primary mt-1">
+          <span id="loginBtnText">Entrar no Sistema</span>
+        </button>
+      </div>
+      <p class="mt-5 text-xs text-center text-slate-500">Sem conta? <a href="#" onclick="showRegister()" class="text-blue-400 hover:underline font-medium">Criar nova conta</a></p>
     </div>
+    <!-- Register -->
+    <div id="registerCard" class="glass p-8 rounded-[22px] shadow-2xl anim-up hidden">
+      <div class="flex items-center gap-3 mb-6">
+        <button onclick="showLogin()" class="text-slate-400 hover:text-white p-1"><i class="fa-solid fa-arrow-left"></i></button>
+        <div>
+          <h3 class="font-bold text-lg">Criar conta</h3>
+          <p class="text-xs text-slate-500">Preenche os dados abaixo</p>
+        </div>
+      </div>
+      <div class="space-y-3">
+        <div class="relative">
+          <i class="fa-solid fa-user absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm pointer-events-none"></i>
+          <input type="text" id="regUsername" placeholder="Utilizador" class="auth-input" autocorrect="off" autocapitalize="none">
+        </div>
+        <div class="relative">
+          <i class="fa-solid fa-envelope absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm pointer-events-none"></i>
+          <input type="email" id="regEmail" placeholder="Email" class="auth-input">
+        </div>
+        <div class="relative">
+          <i class="fa-solid fa-lock absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm pointer-events-none"></i>
+          <input type="password" id="regPassword" placeholder="Senha (min. 8 chars)" class="auth-input" autocomplete="new-password">
+        </div>
+        <div id="pwdHints" class="hidden grid grid-cols-2 gap-1 px-1">
+          <span id="h-len"   class="text-[10px] text-slate-500 flex items-center gap-1"><i class="fa-solid fa-circle text-[6px]"></i> 8+ chars</span>
+          <span id="h-upper" class="text-[10px] text-slate-500 flex items-center gap-1"><i class="fa-solid fa-circle text-[6px]"></i> Maiúscula</span>
+          <span id="h-lower" class="text-[10px] text-slate-500 flex items-center gap-1"><i class="fa-solid fa-circle text-[6px]"></i> Minúscula</span>
+          <span id="h-num"   class="text-[10px] text-slate-500 flex items-center gap-1"><i class="fa-solid fa-circle text-[6px]"></i> Número</span>
+        </div>
+        <div id="regError" class="hidden text-xs text-red-400 items-center gap-2 px-1">
+          <i class="fa-solid fa-circle-exclamation"></i>
+          <span id="regErrorMsg"></span>
+        </div>
+        <button id="regBtn" onclick="handleRegister()" class="btn-primary mt-1">
+          <span id="regBtnText">Criar Conta</span>
+        </button>
+      </div>
+    </div>
+  </div>
 </div>
 
-<!-- Overlay para fechar sidebar mobile -->
+<!-- SIDEBAR OVERLAY -->
 <div id="sidebarOverlay" class="fixed inset-0 bg-black/60 z-40 hidden" onclick="toggleSidebar()"></div>
 
-<!-- ══════════════════════════════════════════════════════════
-     SIDEBAR
-══════════════════════════════════════════════════════════ -->
-<aside id="sidebar" class="w-72 bg-slate-900 border-r border-white/5 flex flex-col z-50 h-screen fixed md:relative -left-72 md:left-0 transition-all duration-300">
-    <div class="p-6 flex-1 overflow-y-auto">
-        <div class="flex items-center gap-3 mb-8">
-            <div class="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center">
-                <i class="fa-solid fa-bolt text-white"></i>
-            </div>
-            <div>
-                <h1 class="font-bold text-base tracking-tight">OPENBOT</h1>
-                <span class="text-[10px] text-slate-500">v3.1 Multi-Provider</span>
-            </div>
-        </div>
-
-        <!-- Perfil do usuário -->
-        <div id="userSection" class="mb-6 hidden">
-            <div class="p-4 bg-slate-950/50 rounded-2xl border border-white/5 flex items-center gap-3">
-                <div id="avatar" class="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-lg font-bold shadow-lg flex-shrink-0">U</div>
-                <div class="flex-1 min-w-0">
-                    <p id="profileName" class="text-sm font-bold truncate">Utilizador</p>
-                    <p id="profileEmail" class="text-xs text-slate-400 truncate"></p>
-                    <span class="text-[10px] text-emerald-500 font-bold uppercase flex items-center gap-1 mt-1">
-                        <span class="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span> Online
-                    </span>
-                </div>
-            </div>
-            <!-- Provider ativo -->
-            <div id="providerBadge" class="mt-2 px-3 py-2 bg-slate-800/50 rounded-xl border border-white/5 text-[10px] text-slate-400 flex items-center gap-2">
-                <i class="fa-solid fa-microchip text-blue-400"></i>
-                <span id="providerLabel">DeepSeek · deepseek-chat</span>
-            </div>
-        </div>
-
-        <!-- Navegação -->
-        <nav class="space-y-1">
-            <button onclick="switchView('chat')" id="nav-chat" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all nav-active">
-                <i class="fa-solid fa-comment-dots w-5"></i> Chat
-            </button>
-            <button onclick="switchView('memory')" id="nav-memory" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all text-slate-400 hover:text-white hover:bg-white/5">
-                <i class="fa-solid fa-brain w-5"></i> Memória
-            </button>
-            <button onclick="switchView('works')" id="nav-works" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all text-slate-400 hover:text-white hover:bg-white/5">
-                <i class="fa-solid fa-briefcase w-5"></i> Works
-            </button>
-            <button onclick="switchView('llms')" id="nav-llms" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all text-slate-400 hover:text-white hover:bg-white/5">
-                <i class="fa-solid fa-microchip w-5"></i> LLMs
-            </button>
-            <div class="pt-4 border-t border-white/5 mt-4 space-y-1">
-                <button onclick="clearChatHistory()" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold text-slate-400 hover:text-amber-400 hover:bg-amber-400/10 transition-all">
-                    <i class="fa-solid fa-broom w-5"></i> Nova Conversa
-                </button>
-                <button onclick="handleLogout()" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold text-red-400 hover:bg-red-400/10 transition-all">
-                    <i class="fa-solid fa-power-off w-5"></i> Sair
-                </button>
-            </div>
-        </nav>
+<!-- SIDEBAR -->
+<aside id="sidebar" class="w-64 flex flex-col z-50 h-screen fixed md:relative -left-64 md:left-0 transition-all duration-300"
+  style="background:var(--surface);border-right:1px solid var(--border)">
+  <div class="p-4 flex-1 flex flex-col overflow-y-auto">
+    <div class="flex items-center gap-3 mb-5">
+      <div class="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center flex-shrink-0"
+        style="box-shadow:0 4px 16px rgba(59,130,246,.35)">
+        <i class="fa-solid fa-bolt text-white text-sm"></i>
+      </div>
+      <div>
+        <h1 class="font-bold text-sm">OPENBOT</h1>
+        <span class="mono text-[10px] text-slate-500">v4.0 · HGR-First</span>
+      </div>
     </div>
 
-    <!-- Status da API -->
-    <div class="p-4 border-t border-white/5">
-        <div class="flex items-center justify-between text-[10px]">
-            <span id="connectionPing" class="text-emerald-500 font-mono flex items-center gap-1">
-                <span class="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span> Online
-            </span>
-            <span id="apiUrl" class="text-slate-600 truncate ml-2">localhost:5000</span>
+    <div id="userSection" class="hidden mb-4">
+      <div class="p-3 rounded-xl flex items-center gap-3" style="background:rgba(255,255,255,.03);border:1px solid var(--border)">
+        <div id="avatar" class="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center font-bold text-base flex-shrink-0">U</div>
+        <div class="flex-1 min-w-0">
+          <p id="profileName" class="text-sm font-semibold truncate">Utilizador</p>
+          <p id="profileEmail" class="text-[11px] text-slate-500 truncate"></p>
+          <span class="text-[10px] text-emerald-500 font-bold flex items-center gap-1 mt-0.5">
+            <span class="w-1.5 h-1.5 bg-emerald-500 rounded-full" style="animation:pulseDot 2s infinite"></span>Online
+          </span>
         </div>
+      </div>
+      <div class="mt-2 px-3 py-2 rounded-xl flex items-center gap-2" style="background:rgba(255,255,255,.03);border:1px solid var(--border)">
+        <i class="fa-solid fa-microchip text-blue-400 text-[10px]"></i>
+        <span id="providerLabel" class="text-[10px] text-slate-400 mono truncate">deepseek · deepseek-chat</span>
+      </div>
     </div>
+
+    <nav class="space-y-0.5 flex-1">
+      <button onclick="switchView('chat')"   id="nav-chat"   class="nav-item w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-semibold nav-active">
+        <i class="fa-solid fa-comment-dots w-4 text-center"></i><span>Chat</span>
+      </button>
+      <button onclick="switchView('memory')" id="nav-memory" class="nav-item w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-400">
+        <i class="fa-solid fa-brain w-4 text-center"></i><span>Memória HGR</span>
+        <span id="memBadge" class="hidden ml-auto badge bg-blue text-[9px]">0</span>
+      </button>
+      <button onclick="switchView('works')"  id="nav-works"  class="nav-item w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-400">
+        <i class="fa-solid fa-clock-rotate-left w-4 text-center"></i><span>Works · Crons</span>
+        <span id="cronBadge" class="hidden ml-auto badge bg-green text-[9px]">0</span>
+      </button>
+      <button onclick="switchView('llms')"   id="nav-llms"   class="nav-item w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-400">
+        <i class="fa-solid fa-microchip w-4 text-center"></i><span>Provedores LLM</span>
+      </button>
+      <div class="pt-3 mt-3 space-y-0.5" style="border-top:1px solid var(--border)">
+        <button onclick="clearChatHistory()" class="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-400 hover:text-amber-400 hover:bg-amber-400/10 transition-all">
+          <i class="fa-solid fa-broom w-4 text-center"></i>Nova Conversa
+        </button>
+        <button onclick="handleLogout()" class="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-semibold text-red-400 hover:bg-red-400/10 transition-all">
+          <i class="fa-solid fa-power-off w-4 text-center"></i>Sair
+        </button>
+      </div>
+    </nav>
+  </div>
+  <div class="px-4 py-3" style="border-top:1px solid var(--border)">
+    <div class="flex items-center justify-between">
+      <span id="pingEl" class="text-emerald-500 mono text-[10px] flex items-center gap-1.5">
+        <span class="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>Online
+      </span>
+      <span id="pingMs" class="mono text-[10px] text-slate-600"></span>
+    </div>
+  </div>
 </aside>
 
-<!-- ══════════════════════════════════════════════════════════
-     ÁREA PRINCIPAL
-══════════════════════════════════════════════════════════ -->
-<main class="flex-1 flex flex-col bg-[#020617] h-screen overflow-hidden">
+<!-- MAIN -->
+<main class="flex-1 flex flex-col h-screen overflow-hidden" style="background:var(--bg)">
 
-    <!-- Header -->
-    <header class="h-14 border-b border-white/5 flex items-center justify-between px-4 bg-slate-900/50 backdrop-blur-md flex-shrink-0">
-        <button onclick="toggleSidebar()" class="md:hidden text-slate-400 p-2 -ml-2">
-            <i class="fa-solid fa-bars-staggered text-xl"></i>
-        </button>
-        <h2 id="viewTitle" class="font-bold text-xs uppercase tracking-widest text-slate-400">Terminal de Chat</h2>
-        <div class="flex items-center gap-2">
-            <button onclick="checkServerStatus()" class="text-slate-600 hover:text-slate-400 p-1 transition-colors" title="Verificar conexão">
-                <i class="fa-solid fa-rotate-right text-xs"></i>
-            </button>
-            <span id="pingMs" class="text-[10px] font-mono text-slate-500"></span>
-        </div>
-    </header>
+  <!-- Header -->
+  <header class="h-14 flex items-center justify-between px-4 flex-shrink-0"
+    style="border-bottom:1px solid var(--border);background:rgba(8,12,20,.85);backdrop-filter:blur(12px)">
+    <button onclick="toggleSidebar()" class="md:hidden text-slate-400 p-2 -ml-2">
+      <i class="fa-solid fa-bars-staggered text-lg"></i>
+    </button>
+    <h2 id="viewTitle" class="mono text-[11px] font-semibold uppercase tracking-widest text-slate-500">Terminal de Chat</h2>
+    <button onclick="checkServerStatus()" class="text-slate-600 hover:text-slate-400 p-2 transition-colors rounded-lg hover:bg-white/5">
+      <i class="fa-solid fa-rotate-right text-xs"></i>
+    </button>
+  </header>
 
-    <!-- VIEW: CHAT -->
-    <div id="chatView" class="flex-1 flex flex-col overflow-hidden hidden">
-        <div id="chatBox" class="flex-1 overflow-y-auto p-4 space-y-1 scrollbar-thin">
-            <div class="flex justify-center opacity-40 text-xs text-slate-600 pt-12">
-                <i class="fa-regular fa-message mr-2 mt-0.5"></i> Nenhuma mensagem ainda
-            </div>
-        </div>
-
-        <!-- Typing indicator -->
-        <div id="typingIndicator" class="px-4 pb-1 hidden">
-            <div class="flex items-center gap-2 text-xs text-slate-500">
-                <span class="flex gap-1">
-                    <span class="w-1.5 h-1.5 bg-blue-500 rounded-full typing-dot"></span>
-                    <span class="w-1.5 h-1.5 bg-blue-500 rounded-full typing-dot"></span>
-                    <span class="w-1.5 h-1.5 bg-blue-500 rounded-full typing-dot"></span>
-                </span>
-                OPENBOT está pensando...
-            </div>
-        </div>
-
-        <!-- Input -->
-        <div class="p-3 bg-slate-900/30 flex-shrink-0">
-            <div class="flex items-end gap-2 glass p-2 rounded-2xl">
-                <textarea id="messageInput" rows="1" placeholder="Mensagem..."
-                    class="flex-1 bg-transparent border-none outline-none p-3 text-sm text-white resize-none max-h-32 disabled:opacity-40"
-                    disabled></textarea>
-                <button onclick="sendMessage()" id="sendBtn"
-                    class="bg-blue-600 w-11 h-11 rounded-xl flex items-center justify-center text-white active:scale-95 transition-all shadow-lg shadow-blue-600/20 disabled:opacity-40 flex-shrink-0"
-                    disabled>
-                    <i class="fa-solid fa-paper-plane text-sm"></i>
-                </button>
-            </div>
-            <div class="flex justify-between text-[10px] text-slate-600 mt-2 px-2">
-                <span>Modo: <span id="modeDisplay">Normal</span></span>
-                <select id="chatMode" class="bg-transparent border border-white/10 rounded text-[10px] p-1 text-slate-400">
-                    <option value="normal">Normal</option>
-                    <option value="stream">Streaming</option>
-                </select>
-            </div>
-        </div>
+  <!-- CHAT VIEW -->
+  <div id="chatView" class="flex-1 flex flex-col overflow-hidden hidden">
+    <div id="chatBox" class="flex-1 overflow-y-auto p-4 space-y-2">
+      <div class="empty"><i class="fa-regular fa-message text-3xl opacity-20"></i><p class="text-sm opacity-40">Nenhuma mensagem ainda</p></div>
     </div>
+    <div id="typingIndicator" class="px-4 pb-2 hidden">
+      <div class="flex items-center gap-2 text-xs text-slate-500">
+        <span class="flex gap-1">
+          <span class="w-1.5 h-1.5 bg-blue-500 rounded-full tdot"></span>
+          <span class="w-1.5 h-1.5 bg-blue-500 rounded-full tdot"></span>
+          <span class="w-1.5 h-1.5 bg-blue-500 rounded-full tdot"></span>
+        </span>
+        OPENBOT está a pensar...
+      </div>
+    </div>
+    <div class="p-3 flex-shrink-0" style="background:rgba(13,17,23,.7);border-top:1px solid var(--border)">
+      <div class="flex items-end gap-2 glass p-2 rounded-2xl">
+        <textarea id="messageInput" rows="1" placeholder="Mensagem... (Enter para enviar)"
+          class="flex-1 bg-transparent border-none outline-none p-3 text-sm text-white resize-none max-h-32 disabled:opacity-40" disabled></textarea>
+        <button onclick="sendMessage()" id="sendBtn"
+          class="w-10 h-10 rounded-xl flex items-center justify-center text-white active:scale-95 transition-all flex-shrink-0 disabled:opacity-40"
+          style="background:var(--accent)" disabled>
+          <i class="fa-solid fa-paper-plane text-xs"></i>
+        </button>
+      </div>
+      <div class="flex justify-between items-center mt-2 px-2">
+        <span class="text-[10px] text-slate-600">Modo: <span id="modeDisplay" class="mono text-slate-500">Normal</span></span>
+        <select id="chatMode" class="bg-transparent border border-white/10 rounded-lg text-[10px] p-1 text-slate-400 outline-none">
+          <option value="normal">Normal</option>
+          <option value="stream">Streaming</option>
+        </select>
+      </div>
+    </div>
+  </div>
 
-    <!-- PAGE VIEW (memória, works, llms) -->
-    <div id="pageViewContainer" class="flex-1 hidden overflow-y-auto scrollbar-thin p-4"></div>
+  <!-- MEMORY VIEW -->
+  <div id="memoryView" class="flex-1 overflow-y-auto hidden p-4 space-y-4">
+    <div class="flex items-center gap-2 flex-wrap">
+      <div class="flex-1 relative min-w-44">
+        <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs pointer-events-none"></i>
+        <input id="memSearch" type="text" placeholder="Pesquisar factos..." oninput="debounceMemSearch()"
+          class="finput pl-9 text-sm w-full" style="padding-top:10px;padding-bottom:10px">
+      </div>
+      <select id="memCategory" onchange="loadMemories()" class="finput text-sm" style="width:auto;padding:10px 12px">
+        <option value="">Todas</option>
+        <option value="identity">Identidade</option>
+        <option value="auto_extracted">Auto-extraído</option>
+        <option value="general">Geral</option>
+        <option value="preference">Preferência</option>
+        <option value="project">Projeto</option>
+      </select>
+      <button onclick="loadMemories()" class="bsm b-blue"><i class="fa-solid fa-rotate-right mr-1"></i>Refresh</button>
+      <button onclick="confirmClearMem()" class="bsm b-red"><i class="fa-solid fa-trash mr-1"></i>Limpar</button>
+    </div>
+    <div id="memStats" class="grid grid-cols-3 gap-3"></div>
+    <div id="memList" class="space-y-2">
+      <div class="empty"><i class="fa-solid fa-circle-notch fa-spin text-blue-500 text-xl"></i><p>Carregando...</p></div>
+    </div>
+  </div>
+
+  <!-- WORKS / CRONS VIEW -->
+  <div id="worksView" class="flex-1 overflow-y-auto hidden p-4 space-y-4">
+    <div class="flex items-center gap-2 flex-wrap">
+      <div class="flex-1">
+        <p class="text-slate-200 font-semibold text-sm">Agendamentos Cron</p>
+        <p class="text-[11px] text-slate-500">Tarefas automáticas · Tick a cada 30s</p>
+      </div>
+      <button onclick="openCronModal()" class="bsm b-blue"><i class="fa-solid fa-plus mr-1"></i>Novo Cron</button>
+      <button onclick="loadCrons()" class="bsm b-ghost"><i class="fa-solid fa-rotate-right"></i></button>
+    </div>
+    <div class="flex gap-2" id="cronTabs">
+      <button onclick="setCronFilter('all')"    id="ctab-all"    class="bsm b-blue text-[11px]">Todos</button>
+      <button onclick="setCronFilter('active')" id="ctab-active" class="bsm b-ghost text-[11px]">Ativos</button>
+      <button onclick="setCronFilter('paused')" id="ctab-paused" class="bsm b-ghost text-[11px]">Pausados</button>
+      <button onclick="setCronFilter('error')"  id="ctab-error"  class="bsm b-ghost text-[11px]">Erro</button>
+    </div>
+    <div id="cronList" class="space-y-3">
+      <div class="empty"><i class="fa-solid fa-circle-notch fa-spin text-blue-500 text-xl"></i><p>Carregando...</p></div>
+    </div>
+  </div>
+
+  <!-- LLMs VIEW -->
+  <div id="llmsView" class="flex-1 overflow-y-auto hidden p-4 space-y-4">
+    <div>
+      <p class="text-slate-200 font-semibold text-sm">Provedores LLM</p>
+      <p class="text-[11px] text-slate-500">Seleciona o provider e modelo activo</p>
+    </div>
+    <div id="providerList" class="space-y-3">
+      <div class="empty"><i class="fa-solid fa-circle-notch fa-spin text-blue-500 text-xl"></i><p>Carregando...</p></div>
+    </div>
+  </div>
+
 </main>
 
-<!-- ══════════════════════════════════════════════════════════
-     TOAST CONTAINER
-══════════════════════════════════════════════════════════ -->
-<div id="toastContainer" class="fixed top-4 right-4 z-[200] flex flex-col gap-2 pointer-events-none" style="width:340px"></div>
+<!-- TOAST CONTAINER -->
+<div id="toastContainer" class="fixed top-4 right-4 z-[300] flex flex-col gap-2 pointer-events-none" style="width:340px"></div>
 
-<!-- ══════════════════════════════════════════════════════════
-     SCRIPT PRINCIPAL
-══════════════════════════════════════════════════════════ -->
-<script>
-// ─────────────────────────────────────────────────────────
-// CONFIGURAÇÃO
-// ─────────────────────────────────────────────────────────
-const API_BASE   = 'http://localhost:5000'; // ← altere para IP do backend
-const PAGES_PATH = './pages';
-
-const state = {
-    token:        localStorage.getItem('openbot_token'),
-    user:         null,
-    currentView:  'chat',
-    isStreaming:  false
-};
-
-// ─────────────────────────────────────────────────────────
-// SISTEMA DE NOTIFICAÇÕES (Toast)
-// ─────────────────────────────────────────────────────────
-const TOAST_ICONS = {
-    success: '<i class="fa-solid fa-circle-check text-emerald-400 toast-icon"></i>',
-    error:   '<i class="fa-solid fa-circle-xmark text-red-400 toast-icon"></i>',
-    info:    '<i class="fa-solid fa-circle-info text-blue-400 toast-icon"></i>',
-    warning: '<i class="fa-solid fa-triangle-exclamation text-amber-400 toast-icon"></i>',
-    loading: '<i class="fa-solid fa-circle-notch fa-spin text-indigo-400 toast-icon"></i>',
-};
-
-const TOAST_TITLES = {
-    success: 'Sucesso',
-    error:   'Erro',
-    info:    'Info',
-    warning: 'Atenção',
-    loading: 'Aguarde',
-};
-
-/**
- * Exibe uma notificação toast.
- * @param {string} message  - Mensagem principal
- * @param {string} type     - 'success' | 'error' | 'info' | 'warning' | 'loading'
- * @param {object} opts     - { title, duration, persistent }
- * @returns {function}      - função removeToast() para fechar manualmente
- */
-function showToast(message, type = 'info', opts = {}) {
-    const container = document.getElementById('toastContainer');
-    const duration  = opts.persistent ? 0 : (opts.duration || (type === 'error' ? 5000 : 3500));
-    const title     = opts.title || TOAST_TITLES[type] || '';
-
-    const toast = document.createElement('div');
-    toast.className = `toast ${type} relative overflow-hidden pointer-events-auto`;
-    toast.innerHTML = `
-        ${TOAST_ICONS[type] || ''}
-        <div class="toast-body">
-            ${title ? `<div class="toast-title">${title}</div>` : ''}
-            <div class="toast-msg">${message}</div>
+<!-- CRON MODAL -->
+<div id="cronModal" class="modal-bg hidden">
+  <div class="modal-box">
+    <div class="flex items-center justify-between mb-5">
+      <h3 class="font-bold text-base">Novo Cron Job</h3>
+      <button onclick="closeCronModal()" class="text-slate-500 hover:text-white p-1"><i class="fa-solid fa-xmark text-lg"></i></button>
+    </div>
+    <div class="space-y-4">
+      <div>
+        <label class="flabel">Nome</label>
+        <input id="cronName" type="text" placeholder="ex: Relatório diário" class="finput">
+      </div>
+      <div>
+        <label class="flabel">Descrição (opcional)</label>
+        <input id="cronDesc" type="text" placeholder="Breve descrição" class="finput">
+      </div>
+      <div>
+        <label class="flabel">Agendamento</label>
+        <select id="cronPreset" onchange="onPresetChange()" class="finput mb-2 text-sm">
+          <option value="every:5m">A cada 5 minutos</option>
+          <option value="every:15m">A cada 15 minutos</option>
+          <option value="every:30m">A cada 30 minutos</option>
+          <option value="every:1h">A cada hora</option>
+          <option value="every:6h">A cada 6 horas</option>
+          <option value="every:24h" selected>Diariamente</option>
+          <option value="every:7d">Semanalmente</option>
+          <option value="cron:0 8 * * *">Todos os dias às 8h</option>
+          <option value="cron:0 0 * * *">Meia-noite</option>
+          <option value="custom">Personalizado...</option>
+        </select>
+        <input id="cronScheduleCustom" type="text" value="every:24h" placeholder="every:1h ou cron:0 8 * * *"
+          class="finput mono text-sm hidden">
+        <p class="text-[10px] text-slate-500 mt-1 mono">every:5m · every:1h · cron:0 8 * * *</p>
+      </div>
+      <div>
+        <label class="flabel">Tipo de Tarefa</label>
+        <div class="grid grid-cols-3 gap-2">
+          <button onclick="setTaskType('agent')" id="tt-agent" class="bsm b-blue text-center py-3">
+            <i class="fa-solid fa-robot block mb-1 text-base"></i><span class="text-[11px]">Agente</span>
+          </button>
+          <button onclick="setTaskType('shell')" id="tt-shell" class="bsm b-ghost text-center py-3">
+            <i class="fa-solid fa-terminal block mb-1 text-base"></i><span class="text-[11px]">Shell</span>
+          </button>
+          <button onclick="setTaskType('http')" id="tt-http" class="bsm b-ghost text-center py-3">
+            <i class="fa-solid fa-globe block mb-1 text-base"></i><span class="text-[11px]">HTTP</span>
+          </button>
         </div>
-        <span class="toast-close" onclick="this.closest('.toast').remove()">
-            <i class="fa-solid fa-xmark"></i>
-        </span>
-        ${duration > 0 ? `<div class="toast-progress" style="width:100%"></div>` : ''}
-    `;
+        <p id="ttHint" class="text-[10px] text-slate-500 mt-2">O LLM executa como mensagem do utilizador.</p>
+      </div>
+      <div>
+        <label class="flabel" id="cronTaskLabel">Prompt / Tarefa</label>
+        <textarea id="cronTask" rows="3" placeholder="ex: Verifica o estado do sistema" class="finput mono text-sm"></textarea>
+      </div>
+    </div>
+    <div class="flex gap-2 mt-5">
+      <button onclick="closeCronModal()" class="bsm b-ghost flex-1">Cancelar</button>
+      <button onclick="createCron()" id="cronCreateBtn" class="bsm b-blue flex-1">
+        <i class="fa-solid fa-plus mr-1"></i>Criar Cron
+      </button>
+    </div>
+  </div>
+</div>
 
-    container.appendChild(toast);
+<script>
+// ════════════════════════════════════════════════════
+// CONFIGURAÇÃO GLOBAL
+// ════════════════════════════════════════════════════
+var API_BASE = 'http://localhost:5000';
 
-    // Anima barra de progresso
-    if (duration > 0) {
-        const bar = toast.querySelector('.toast-progress');
-        requestAnimationFrame(() => {
-            bar.style.transition = `width ${duration}ms linear`;
-            bar.style.width = '0%';
-        });
+var appState = {
+  token:       localStorage.getItem('openbot_token') || '',
+  user:        null,
+  currentView: 'chat',
+  isLoading:   false,
+  activeProvider: '',
+  activeModel:    '',
+  selectedModels: {},
+  cronFilter:  'all',
+  taskType:    'agent'
+};
 
-        setTimeout(() => {
-            toast.classList.add('removing');
-            setTimeout(() => toast.remove(), 260);
-        }, duration);
-    }
+var _memTimer = null;
+var _chatBox  = null; // initialized on DOMContentLoaded
 
-    return () => {
-        toast.classList.add('removing');
-        setTimeout(() => toast.remove(), 260);
-    };
+// ════════════════════════════════════════════════════
+// TOAST
+// ════════════════════════════════════════════════════
+var TICONS = {
+  success:'<i class="fa-solid fa-circle-check text-emerald-400 flex-shrink-0 mt-0.5"></i>',
+  error:  '<i class="fa-solid fa-circle-xmark text-red-400 flex-shrink-0 mt-0.5"></i>',
+  info:   '<i class="fa-solid fa-circle-info text-blue-400 flex-shrink-0 mt-0.5"></i>',
+  warning:'<i class="fa-solid fa-triangle-exclamation text-amber-400 flex-shrink-0 mt-0.5"></i>',
+  loading:'<i class="fa-solid fa-circle-notch fa-spin text-indigo-400 flex-shrink-0 mt-0.5"></i>'
+};
+
+function showToast(msg, type, opts) {
+  type = type || 'info'; opts = opts || {};
+  var container = document.getElementById('toastContainer');
+  var dur = opts.persistent ? 0 : (opts.duration || (type==='error' ? 5000 : 3500));
+  var t = document.createElement('div');
+  t.className = 'toast ' + type + ' pointer-events-auto';
+  t.innerHTML = (TICONS[type]||'') +
+    '<div class="flex-1 text-[13px] leading-snug">' + msg + '</div>' +
+    '<span onclick="this.closest(\'.toast\').remove()" class="opacity-40 hover:opacity-100 cursor-pointer flex-shrink-0"><i class="fa-solid fa-xmark"></i></span>' +
+    (dur > 0 ? '<div class="tprog" style="width:100%"></div>' : '');
+  container.appendChild(t);
+  if (dur > 0) {
+    var bar = t.querySelector('.tprog');
+    requestAnimationFrame(function(){ bar.style.transition='width '+dur+'ms linear'; bar.style.width='0%'; });
+    setTimeout(function(){ t.classList.add('removing'); setTimeout(function(){ t.remove(); }, 260); }, dur);
+  }
+  return function(){ t.classList.add('removing'); setTimeout(function(){ t.remove(); }, 260); };
 }
 
-/** Toast de loading persistente — retorna função para fechar */
-function showLoadingToast(message) {
-    return showToast(message, 'loading', { persistent: true });
+function showLoadingToast(msg) { return showToast(msg, 'loading', {persistent:true}); }
+
+// ════════════════════════════════════════════════════
+// UTILS
+// ════════════════════════════════════════════════════
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// ─────────────────────────────────────────────────────────
-// UTILITÁRIOS
-// ─────────────────────────────────────────────────────────
-function escapeHtml(s) {
-    if (!s) return '';
-    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-            .replace(/"/g,'&quot;').replace(/'/g,'&#039;');
-}
-
-function setButtonLoading(btnId, textId, loading, originalText) {
-    const btn = document.getElementById(btnId);
-    const txt = document.getElementById(textId);
-    if (!btn || !txt) return;
-    btn.disabled = loading;
-    btn.classList.toggle('loading', loading);
-    txt.innerHTML = loading
-        ? '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Aguarde...'
-        : originalText;
-}
-
-function setInputError(inputId, hasError) {
-    const el = document.getElementById(inputId);
-    if (!el) return;
-    el.classList.toggle('error', hasError);
-    if (hasError) el.classList.remove('success');
-}
-
-function showInlineError(containerId, msgId, message) {
-    const c = document.getElementById(containerId);
-    const m = document.getElementById(msgId);
-    if (!c || !m) return;
-    m.textContent = message;
-    c.classList.remove('hidden');
-    c.classList.add('flex');
-    // Shake no card
-    const card = c.closest('.glass');
-    if (card) {
-        card.classList.add('animate-shake');
-        setTimeout(() => card.classList.remove('animate-shake'), 400);
-    }
-}
-
-function hideInlineError(containerId) {
-    const c = document.getElementById(containerId);
-    if (c) { c.classList.add('hidden'); c.classList.remove('flex'); }
+function apiCall(endpoint, opts) {
+  opts = opts || {};
+  var headers = Object.assign({'Content-Type':'application/json','Authorization':'Bearer '+appState.token}, opts.headers||{});
+  return fetch(API_BASE + endpoint, Object.assign({}, opts, {headers: headers}));
 }
 
 function toggleSidebar() {
-    const sidebar = document.getElementById('sidebar');
-    const overlay = document.getElementById('sidebarOverlay');
-    sidebar.classList.toggle('-left-72');
-    sidebar.classList.toggle('left-0');
-    overlay.classList.toggle('hidden');
+  var s = document.getElementById('sidebar');
+  var o = document.getElementById('sidebarOverlay');
+  s.classList.toggle('-left-64');
+  s.classList.toggle('left-0');
+  o.classList.toggle('hidden');
 }
 
-// ─────────────────────────────────────────────────────────
-// AUTH — TROCA ENTRE LOGIN E REGISTRO
-// ─────────────────────────────────────────────────────────
+function hideMobile() {
+  if (window.innerWidth < 768) {
+    var s = document.getElementById('sidebar');
+    var o = document.getElementById('sidebarOverlay');
+    s.classList.add('-left-64'); s.classList.remove('left-0');
+    o.classList.add('hidden');
+  }
+}
+
+function showErr(errId, msgId, msg) {
+  var c = document.getElementById(errId);
+  var m = document.getElementById(msgId);
+  if (!c || !m) return;
+  m.textContent = msg;
+  c.classList.remove('hidden'); c.classList.add('flex');
+}
+function hideErr(errId) {
+  var c = document.getElementById(errId);
+  if (c) { c.classList.add('hidden'); c.classList.remove('flex'); }
+}
+
+// ════════════════════════════════════════════════════
+// AUTH
+// ════════════════════════════════════════════════════
 function showRegister() {
-    document.getElementById('loginCard').classList.add('hidden');
-    document.getElementById('registerCard').classList.remove('hidden');
-    document.getElementById('registerCard').classList.add('animate-slide-up');
-    hideInlineError('regError');
-    document.getElementById('regUsername').focus();
+  document.getElementById('loginCard').classList.add('hidden');
+  document.getElementById('registerCard').classList.remove('hidden');
+  hideErr('regError');
 }
 
 function showLogin() {
-    document.getElementById('registerCard').classList.add('hidden');
-    document.getElementById('loginCard').classList.remove('hidden');
-    document.getElementById('loginCard').classList.add('animate-slide-up');
-    hideInlineError('loginError');
-    document.getElementById('loginUsername').focus();
+  document.getElementById('registerCard').classList.add('hidden');
+  document.getElementById('loginCard').classList.remove('hidden');
+  hideErr('loginError');
 }
 
-// ─────────────────────────────────────────────────────────
-// AUTH — LOGIN
-// ─────────────────────────────────────────────────────────
-async function handleLogin() {
-    const username = document.getElementById('loginUsername').value.trim();
-    const password = document.getElementById('loginPassword').value;
-
-    hideInlineError('loginError');
-    setInputError('loginUsername', false);
-    setInputError('loginPassword', false);
-
-    // Validação frontend
-    if (!username) {
-        setInputError('loginUsername', true);
-        showInlineError('loginError', 'loginErrorMsg', 'Preencha o utilizador.');
-        document.getElementById('loginUsername').focus();
-        return;
-    }
-    if (!password) {
-        setInputError('loginPassword', true);
-        showInlineError('loginError', 'loginErrorMsg', 'Preencha a senha.');
-        document.getElementById('loginPassword').focus();
-        return;
-    }
-
-    setButtonLoading('loginBtn', 'loginBtnText', true);
-    const removeLoading = showLoadingToast('A autenticar...');
-
-    try {
-        const response = await fetch(`${API_BASE}/api/auth/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password })
-        });
-
-        const data = await response.json();
-        removeLoading();
-
-        if (response.ok && data.token) {
-            // Sucesso
-            state.token = data.token;
-            localStorage.setItem('openbot_token', data.token);
-            showToast(`Bem-vindo, ${escapeHtml(username)}!`, 'success');
-            await loadUserProfile();
-        } else {
-            // Erro da API
-            const msg = data.error || 'Credenciais inválidas';
-            setInputError('loginUsername', true);
-            setInputError('loginPassword', true);
-            showInlineError('loginError', 'loginErrorMsg', msg);
-            showToast(msg, 'error');
-            document.getElementById('loginPassword').value = '';
-            document.getElementById('loginPassword').focus();
-        }
-    } catch (err) {
-        removeLoading();
-        const msg = 'Sem conexão com o servidor. Verifique o backend.';
-        showInlineError('loginError', 'loginErrorMsg', msg);
-        showToast(msg, 'error', { duration: 6000 });
-        console.error('[Login]', err);
-    } finally {
-        setButtonLoading('loginBtn', 'loginBtnText', false, 'Entrar no Sistema');
-    }
+function updatePwdHints() {
+  var pwd = document.getElementById('regPassword').value;
+  var checks = {'h-len':pwd.length>=8,'h-upper':/[A-Z]/.test(pwd),'h-lower':/[a-z]/.test(pwd),'h-num':/\d/.test(pwd)};
+  Object.keys(checks).forEach(function(id) {
+    var el = document.getElementById(id); if (!el) return;
+    var ok = checks[id];
+    el.className = 'text-[10px] flex items-center gap-1 ' + (ok ? 'text-emerald-400' : 'text-slate-500');
+    el.querySelector('i').className = 'fa-solid ' + (ok ? 'fa-check text-emerald-400' : 'fa-circle text-[6px]');
+  });
 }
 
-// ─────────────────────────────────────────────────────────
-// AUTH — REGISTRO
-// ─────────────────────────────────────────────────────────
+function handleLogin() {
+  var u = document.getElementById('loginUsername').value.trim();
+  var p = document.getElementById('loginPassword').value;
+  hideErr('loginError');
+  if (!u) { showErr('loginError','loginErrorMsg','Preenche o utilizador.'); return; }
+  if (!p) { showErr('loginError','loginErrorMsg','Preenche a senha.'); return; }
 
-// Validação de senha em tempo real
-document.addEventListener('DOMContentLoaded', () => {
-    const regPwd = document.getElementById('regPassword');
-    if (regPwd) {
-        regPwd.addEventListener('focus', () => {
-            document.getElementById('passwordHints').classList.remove('hidden');
-        });
-        regPwd.addEventListener('input', updatePasswordHints);
+  var btn = document.getElementById('loginBtn');
+  var txt = document.getElementById('loginBtnText');
+  btn.disabled = true;
+  txt.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Aguarde...';
+
+  var rm = showLoadingToast('A autenticar...');
+  fetch(API_BASE+'/api/auth/login', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({username:u, password:p})
+  })
+  .then(function(r){ return r.json().then(function(d){ return {ok:r.ok, d:d}; }); })
+  .then(function(res) {
+    rm();
+    if (res.ok && res.d.token) {
+      appState.token = res.d.token;
+      localStorage.setItem('openbot_token', res.d.token);
+      showToast('Bem-vindo, ' + esc(u) + '!', 'success');
+      loadUserProfile();
+    } else {
+      showErr('loginError','loginErrorMsg', res.d.error || 'Credenciais inválidas');
+      document.getElementById('loginPassword').value = '';
     }
-
-    // Enter nos campos de login
-    ['loginUsername','loginPassword'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.addEventListener('keydown', e => { if (e.key==='Enter') handleLogin(); });
-    });
-    ['regUsername','regEmail','regPassword'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.addEventListener('keydown', e => { if (e.key==='Enter') handleRegister(); });
-    });
-});
-
-function updatePasswordHints() {
-    const pwd = document.getElementById('regPassword').value;
-    const checks = {
-        'hint-len':   pwd.length >= 8,
-        'hint-upper': /[A-Z]/.test(pwd),
-        'hint-lower': /[a-z]/.test(pwd),
-        'hint-num':   /\d/.test(pwd),
-    };
-    Object.entries(checks).forEach(([id, ok]) => {
-        const el = document.getElementById(id);
-        if (!el) return;
-        el.className = `text-[10px] flex items-center gap-1 ${ok ? 'text-emerald-400' : 'text-slate-500'}`;
-        el.querySelector('i').className = `fa-solid ${ok ? 'fa-check text-emerald-400' : 'fa-circle text-[6px]'}`;
-    });
+  })
+  .catch(function() { rm(); showErr('loginError','loginErrorMsg','Sem conexão com o servidor.'); })
+  .finally(function() { btn.disabled=false; txt.textContent='Entrar no Sistema'; });
 }
 
-async function handleRegister() {
-    const username = document.getElementById('regUsername').value.trim();
-    const email    = document.getElementById('regEmail').value.trim();
-    const password = document.getElementById('regPassword').value;
+function handleRegister() {
+  var u = document.getElementById('regUsername').value.trim();
+  var e = document.getElementById('regEmail').value.trim();
+  var p = document.getElementById('regPassword').value;
+  hideErr('regError');
+  if (!u||u.length<3) { showErr('regError','regErrorMsg','Utilizador: mínimo 3 chars.'); return; }
+  if (!e||!e.includes('@')) { showErr('regError','regErrorMsg','Email inválido.'); return; }
+  if (!p||p.length<8) { showErr('regError','regErrorMsg','Senha: mínimo 8 chars.'); return; }
 
-    hideInlineError('regError');
-    ['regUsername','regEmail','regPassword'].forEach(id => setInputError(id, false));
+  var btn = document.getElementById('regBtn');
+  var txt = document.getElementById('regBtnText');
+  btn.disabled = true;
+  txt.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Aguarde...';
 
-    // Validações
-    if (!username) {
-        setInputError('regUsername', true);
-        showInlineError('regError','regErrorMsg','Preencha o utilizador.');
-        return;
+  var rm = showLoadingToast('A criar conta...');
+  fetch(API_BASE+'/api/auth/register', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({username:u, email:e, password:p})
+  })
+  .then(function(r){ return r.json().then(function(d){ return {ok:r.ok, d:d}; }); })
+  .then(function(res) {
+    rm();
+    if (res.ok) {
+      showToast('Conta criada! Faz login agora.', 'success', {duration:4000});
+      showLogin();
+      document.getElementById('loginUsername').value = u;
+    } else {
+      showErr('regError','regErrorMsg', res.d.error || 'Erro ao criar conta.');
     }
-    if (username.length < 3) {
-        setInputError('regUsername', true);
-        showInlineError('regError','regErrorMsg','Utilizador deve ter no mínimo 3 caracteres.');
-        return;
-    }
-    if (!email || !email.includes('@')) {
-        setInputError('regEmail', true);
-        showInlineError('regError','regErrorMsg','Email inválido.');
-        return;
-    }
-    if (!password || password.length < 8) {
-        setInputError('regPassword', true);
-        showInlineError('regError','regErrorMsg','Senha deve ter no mínimo 8 caracteres.');
-        return;
-    }
-
-    setButtonLoading('regBtn', 'regBtnText', true);
-    const removeLoading = showLoadingToast('A criar conta...');
-
-    try {
-        const response = await fetch(`${API_BASE}/api/auth/register`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, email, password })
-        });
-
-        const data = await response.json();
-        removeLoading();
-
-        if (response.ok) {
-            showToast('Conta criada! Faça login agora.', 'success', { duration: 4000 });
-            // Preenche login automaticamente e volta para tela de login
-            showLogin();
-            document.getElementById('loginUsername').value = username;
-            document.getElementById('loginPassword').value = '';
-            document.getElementById('loginPassword').focus();
-        } else {
-            const msg = data.error || 'Erro ao criar conta';
-            showInlineError('regError','regErrorMsg', msg);
-            showToast(msg, 'error');
-        }
-    } catch (err) {
-        removeLoading();
-        const msg = 'Sem conexão com o servidor.';
-        showInlineError('regError','regErrorMsg', msg);
-        showToast(msg, 'error', { duration: 6000 });
-        console.error('[Register]', err);
-    } finally {
-        setButtonLoading('regBtn', 'regBtnText', false, 'Criar Conta');
-    }
+  })
+  .catch(function() { rm(); showErr('regError','regErrorMsg','Sem conexão.'); })
+  .finally(function() { btn.disabled=false; txt.textContent='Criar Conta'; });
 }
 
-// ─────────────────────────────────────────────────────────
-// PERFIL E UNLOCK DA UI
-// ─────────────────────────────────────────────────────────
-async function loadUserProfile() {
-    const removeLoading = showLoadingToast('Carregando perfil...');
-    try {
-        const response = await fetch(`${API_BASE}/api/user/profile`, {
-            headers: { 'Authorization': `Bearer ${state.token}` }
-        });
-        const data = await response.json();
-        removeLoading();
-
-        if (data.status === 'success') {
-            state.user = data.user;
-            unlockUI(data);
-        } else {
-            showToast('Sessão expirada. Faça login novamente.', 'warning');
-            handleLogout();
-        }
-    } catch (err) {
-        removeLoading();
-        showToast('Erro ao carregar perfil. Verifique o servidor.', 'error');
-        handleLogout();
-        console.error('[Profile]', err);
+// ════════════════════════════════════════════════════
+// PROFILE & UNLOCK
+// ════════════════════════════════════════════════════
+function loadUserProfile() {
+  var rm = showLoadingToast('Carregando perfil...');
+  apiCall('/api/user/profile')
+  .then(function(r){ return r.json(); })
+  .then(function(d) {
+    rm();
+    if (d.status === 'success') {
+      appState.user = d.user;
+      unlockUI(d);
+    } else {
+      showToast('Sessão expirada.','warning');
+      handleLogout();
     }
+  })
+  .catch(function() { rm(); showToast('Erro ao carregar perfil.','error'); handleLogout(); });
 }
 
 function unlockUI(profileData) {
-    // FIX: esconde o overlay corretamente
-    const overlay = document.getElementById('authOverlay');
-    overlay.style.opacity = '0';
-    overlay.style.pointerEvents = 'none';
-    setTimeout(() => overlay.style.display = 'none', 300);
+  var overlay = document.getElementById('authOverlay');
+  overlay.style.opacity = '0'; overlay.style.pointerEvents = 'none';
+  setTimeout(function(){ overlay.style.display='none'; }, 300);
 
-    // Mostra chat e perfil
-    document.getElementById('chatView').classList.remove('hidden');
-    document.getElementById('userSection').classList.remove('hidden');
-    document.getElementById('messageInput').disabled  = false;
-    document.getElementById('sendBtn').disabled       = false;
+  document.getElementById('userSection').classList.remove('hidden');
+  document.getElementById('messageInput').disabled = false;
+  document.getElementById('sendBtn').disabled = false;
+  document.getElementById('profileName').textContent  = appState.user.username;
+  document.getElementById('profileEmail').textContent = appState.user.email || '';
+  document.getElementById('avatar').textContent       = appState.user.username.charAt(0).toUpperCase();
 
-    // Preenche dados do usuário
-    document.getElementById('profileName').innerText  = state.user.username;
-    document.getElementById('profileEmail').innerText = state.user.email || '';
-    document.getElementById('avatar').innerText       = state.user.username.charAt(0).toUpperCase();
+  if (profileData && profileData.provider) {
+    document.getElementById('providerLabel').textContent =
+      profileData.provider.active + ' · ' + profileData.provider.model;
+  }
 
-    // Provider info
-    if (profileData?.provider) {
-        document.getElementById('providerLabel').innerText =
-            `${profileData.provider.active} · ${profileData.provider.model}`;
-    }
-
-    // Mensagem de boas-vindas no chat
-    chatBox.innerHTML = '';
-    appendBotMessage(
-        `Olá, **${state.user.username}**! Pronto para ajudar. O que precisa hoje?`,
-        null
-    );
-
-    document.getElementById('messageInput').focus();
+  switchView('chat');
+  _chatBox.innerHTML = '';
+  appendBotMessage('Olá, **' + esc(appState.user.username) + '**! Sistema HGR v4 activo. O que precisas hoje?', null);
+  document.getElementById('messageInput').focus();
 }
 
 function handleLogout() {
-    const removeLoading = showLoadingToast('A sair...');
-    try {
-        if (state.token) {
-            fetch(`${API_BASE}/api/auth/logout`, {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${state.token}` }
-            }).catch(() => {});
-        }
-    } finally {
-        localStorage.removeItem('openbot_token');
-        state.token = null;
-        state.user  = null;
+  if (appState.token) {
+    apiCall('/api/auth/logout',{method:'POST'}).catch(function(){});
+  }
+  localStorage.removeItem('openbot_token');
+  appState.token = ''; appState.user = null;
 
-        const overlay = document.getElementById('authOverlay');
-        overlay.style.display = 'flex';
-        overlay.style.opacity = '1';
-        overlay.style.pointerEvents = '';
+  var overlay = document.getElementById('authOverlay');
+  overlay.style.display='flex'; overlay.style.opacity='1'; overlay.style.pointerEvents='';
 
-        document.getElementById('chatView').classList.add('hidden');
-        document.getElementById('pageViewContainer').classList.add('hidden');
-        document.getElementById('userSection').classList.add('hidden');
-        document.getElementById('messageInput').disabled = true;
-        document.getElementById('sendBtn').disabled      = true;
+  ['chatView','memoryView','worksView','llmsView'].forEach(function(id){
+    var el = document.getElementById(id); if(el) el.classList.add('hidden');
+  });
+  document.getElementById('userSection').classList.add('hidden');
+  document.getElementById('messageInput').disabled = true;
+  document.getElementById('sendBtn').disabled = true;
 
-        // Volta para tela de login
-        showLogin();
-        removeLoading();
-        showToast('Sessão encerrada.', 'info', { duration: 2500 });
-    }
+  showLogin();
+  showToast('Sessão encerrada.','info',{duration:2500});
 }
 
-// ─────────────────────────────────────────────────────────
-// CHAT — LIMPAR HISTÓRICO
-// ─────────────────────────────────────────────────────────
-async function clearChatHistory() {
-    if (!state.token) return;
-    const removeLoading = showLoadingToast('Limpando conversa...');
-    try {
-        await fetch(`${API_BASE}/api/chat/clear`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${state.token}` }
-        });
-        removeLoading();
-        document.getElementById('chatBox').innerHTML = '';
-        appendBotMessage('Nova conversa iniciada. Como posso ajudar?', null);
-        switchView('chat');
-        showToast('Histórico de conversa limpo.', 'success', { duration: 2500 });
-    } catch (err) {
-        removeLoading();
-        showToast('Erro ao limpar conversa.', 'error');
-    }
-    if (window.innerWidth < 768) toggleSidebar();
+// ════════════════════════════════════════════════════
+// CHAT
+// ════════════════════════════════════════════════════
+function clearChatHistory() {
+  if (!appState.token) return;
+  var rm = showLoadingToast('Limpando conversa...');
+  apiCall('/api/chat/clear',{method:'POST'})
+  .then(function(){ rm(); _chatBox.innerHTML=''; appendBotMessage('Nova conversa iniciada. Memória HGR permanece activa.',null); switchView('chat'); showToast('Histórico limpo.','success',{duration:2500}); })
+  .catch(function(){ rm(); showToast('Erro.','error'); });
+  hideMobile();
 }
 
-// ─────────────────────────────────────────────────────────
-// CHAT — MENSAGENS
-// ─────────────────────────────────────────────────────────
-const chatBox = document.getElementById('chatBox');
-
-function renderMarkdownSimple(text) {
-    // Negrito simples **texto**
-    return escapeHtml(text)
-        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-        .replace(/`(.+?)`/g, '<code class="bg-slate-700/50 px-1 rounded text-xs">$1</code>');
+function renderMd(text) {
+  return esc(text)
+    .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+    .replace(/`(.+?)`/g,'<code style="background:rgba(59,130,246,.15);padding:1px 5px;border-radius:4px;font-size:11px;font-family:monospace">$1</code>')
+    .replace(/\n/g,'<br>');
 }
 
 function appendUserMessage(text) {
-    const wrapper = document.createElement('div');
-    wrapper.className = 'flex justify-end animate-fade-in mb-3';
-    wrapper.innerHTML = `
-        <div class="max-w-[82%] bg-blue-600 rounded-2xl rounded-tr-none px-4 py-3 text-white">
-            <div class="text-sm whitespace-pre-wrap">${escapeHtml(text)}</div>
-        </div>`;
-    chatBox.appendChild(wrapper);
-    chatBox.scrollTop = chatBox.scrollHeight;
+  var w = document.createElement('div');
+  w.className = 'flex justify-end anim-in mb-2';
+  w.innerHTML = '<div class="max-w-[85%] rounded-2xl rounded-tr-none px-4 py-3 text-white text-sm" style="background:var(--accent)"><div class="whitespace-pre-wrap">'+esc(text)+'</div></div>';
+  _chatBox.appendChild(w); _chatBox.scrollTop = _chatBox.scrollHeight;
 }
 
-function appendBotMessage(text, metadata) {
-    const wrapper = document.createElement('div');
-    wrapper.className = 'flex justify-start animate-fade-in mb-3';
-    const metaHtml = metadata ? `
-        <div class="mt-2 pt-2 border-t border-white/10 text-[10px] text-slate-500 flex gap-3 flex-wrap">
-            ${metadata.provider ? `<span><i class="fa-solid fa-microchip mr-1"></i>${escapeHtml(metadata.provider)}</span>` : ''}
-            <span><i class="fa-solid fa-wrench mr-1"></i>${metadata.tools_used || 0} tools</span>
-            <span><i class="fa-regular fa-clock mr-1"></i>${metadata.time || 0}s</span>
-            <span><i class="fa-solid fa-shoe-prints mr-1"></i>${metadata.steps || 0} steps</span>
-        </div>` : '';
-    wrapper.innerHTML = `
-        <div class="max-w-[85%] glass rounded-2xl rounded-tl-none px-4 py-3 text-slate-200">
-            <div class="text-sm whitespace-pre-wrap leading-relaxed">${renderMarkdownSimple(text)}</div>
-            ${metaHtml}
-        </div>`;
-    chatBox.appendChild(wrapper);
-    chatBox.scrollTop = chatBox.scrollHeight;
-    return wrapper;
+function appendBotMessage(text, meta) {
+  var metaHtml = '';
+  if (meta && (meta.tools_used > 0 || meta.time)) {
+    metaHtml = '<div class="mt-2 pt-2 flex gap-3 flex-wrap" style="border-top:1px solid rgba(255,255,255,.06)">' +
+      (meta.provider ? '<span class="text-[10px] text-slate-500 mono">'+esc(meta.provider)+'</span>' : '') +
+      (meta.tools_used > 0 ? '<span class="text-[10px] text-slate-500">'+meta.tools_used+' tools</span>' : '') +
+      (meta.time ? '<span class="text-[10px] text-slate-500 mono">'+meta.time+'s</span>' : '') +
+      (meta.facts_extracted && meta.facts_extracted.length > 0 ? '<span class="text-[10px] text-emerald-500">+'+meta.facts_extracted.length+' factos</span>' : '') +
+      '</div>';
+  }
+  var w = document.createElement('div');
+  w.className = 'flex justify-start anim-in mb-2';
+  w.innerHTML = '<div class="max-w-[85%] rounded-2xl rounded-tl-none px-4 py-3 text-sm text-slate-200 leading-relaxed" style="background:rgba(17,24,39,.9);border:1px solid var(--border)"><div>'+renderMd(text)+'</div>'+metaHtml+'</div>';
+  _chatBox.appendChild(w); _chatBox.scrollTop = _chatBox.scrollHeight;
 }
 
-async function sendMessage() {
-    const text = document.getElementById('messageInput').value.trim();
-    if (!text || !state.token) return;
+function sendMessage() {
+  if (appState.isLoading) return;
+  var input = document.getElementById('messageInput');
+  var msg = input.value.trim();
+  if (!msg) return;
 
-    document.getElementById('messageInput').value = '';
-    document.getElementById('messageInput').style.height = 'auto';
-    appendUserMessage(text);
+  input.value = ''; input.style.height = 'auto';
+  appendUserMessage(msg);
+  appState.isLoading = true;
+  document.getElementById('typingIndicator').classList.remove('hidden');
+  document.getElementById('sendBtn').disabled = true;
 
-    const indicator = document.getElementById('typingIndicator');
-    indicator.classList.remove('hidden');
-    document.getElementById('modeDisplay').innerText =
-        document.getElementById('chatMode').value === 'stream' ? 'Streaming' : 'Normal';
+  var mode = document.getElementById('chatMode').value;
 
-    try {
-        if (document.getElementById('chatMode').value === 'stream') {
-            await sendStreamMessage(text);
-        } else {
-            await sendNormalMessage(text);
-        }
-    } catch (err) {
-        appendBotMessage(`Erro: ${err.message}`, null);
-        showToast(`Falha ao enviar mensagem: ${err.message}`, 'error');
-    } finally {
-        indicator.classList.add('hidden');
-    }
-}
-
-async function sendNormalMessage(message) {
-    const response = await fetch(`${API_BASE}/api/chat`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${state.token}`
-        },
-        body: JSON.stringify({ message })
+  if (mode === 'stream') {
+    sendStream(msg).finally(function(){
+      appState.isLoading = false;
+      document.getElementById('typingIndicator').classList.add('hidden');
+      document.getElementById('sendBtn').disabled = false;
+      document.getElementById('messageInput').focus();
     });
-
-    if (response.status === 401) { handleLogout(); return; }
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-    const data = await response.json();
-    let reply = '', metadata = null;
-
-    if (data.responses?.[0]) {
-        reply    = data.responses[0].response || '';
-        metadata = {
-            tools_used: data.responses[0].tools_used,
-            steps:      data.responses[0].steps,
-            time:       data.responses[0].time,
-            provider:   data.provider || data.responses[0].provider
-        };
-    } else {
-        reply = data.message || JSON.stringify(data);
-    }
-
-    appendBotMessage(reply, metadata);
+  } else {
+    apiCall('/api/chat',{method:'POST',body:JSON.stringify({message:msg})})
+    .then(function(r){
+      if(r.status===401){handleLogout();return null;}
+      return r.json();
+    })
+    .then(function(d){
+      if(!d) return;
+      if(d.status==='success'&&d.responses&&d.responses.length>0){
+        var resp = d.responses[0];
+        appendBotMessage(resp.response,{tools_used:resp.tools_used,time:resp.time,provider:resp.provider,facts_extracted:resp.facts_extracted});
+      } else {
+        appendBotMessage(d.error||JSON.stringify(d),null);
+      }
+    })
+    .catch(function(e){ appendBotMessage('Erro de rede: '+e.message,null); showToast('Erro de rede.','error'); })
+    .finally(function(){
+      appState.isLoading=false;
+      document.getElementById('typingIndicator').classList.add('hidden');
+      document.getElementById('sendBtn').disabled=false;
+      document.getElementById('messageInput').focus();
+    });
+  }
 }
 
-async function sendStreamMessage(message) {
-    const response = await fetch(`${API_BASE}/api/chat/stream`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${state.token}`
-        },
-        body: JSON.stringify({ message })
-    });
-
-    if (response.status === 401) { handleLogout(); return; }
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-    // Cria bolha vazia que será preenchida
-    const wrapper = document.createElement('div');
-    wrapper.className = 'flex justify-start animate-fade-in mb-3';
-    const bubble = document.createElement('div');
-    bubble.className = 'max-w-[85%] glass rounded-2xl rounded-tl-none px-4 py-3 text-slate-200';
-    const content = document.createElement('div');
-    content.className = 'text-sm whitespace-pre-wrap leading-relaxed';
-    content.innerText = '▋';
-    bubble.appendChild(content);
-    wrapper.appendChild(bubble);
-    chatBox.appendChild(wrapper);
-
-    const reader  = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '', fullText = '';
-
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-            if (!line.startsWith('data: ')) continue;
-            try {
-                const d = JSON.parse(line.slice(6));
-                if (d.type === 'final') {
-                    fullText = d.response;
-                    content.innerHTML = renderMarkdownSimple(fullText);
-                    if (d.tools_used > 0) {
-                        const metaDiv = document.createElement('div');
-                        metaDiv.className = 'mt-2 pt-2 border-t border-white/10 text-[10px] text-slate-500 flex gap-3 flex-wrap';
-                        metaDiv.innerHTML = `
-                            ${d.provider ? `<span><i class="fa-solid fa-microchip mr-1"></i>${escapeHtml(d.provider)}</span>` : ''}
-                            <span><i class="fa-solid fa-wrench mr-1"></i>${d.tools_used} tools</span>
-                            <span><i class="fa-regular fa-clock mr-1"></i>${d.time}s</span>
-                            <span><i class="fa-solid fa-shoe-prints mr-1"></i>${d.steps} steps</span>
-                        `;
-                        bubble.appendChild(metaDiv);
-                    }
-                } else if (d.chunk) {
-                    fullText += d.chunk;
-                    content.innerHTML = renderMarkdownSimple(fullText) + ' ▋';
-                }
-            } catch (e) { /* ignora chunks inválidos */ }
-        }
-        chatBox.scrollTop = chatBox.scrollHeight;
+async function sendStream(msg) {
+  var r = await apiCall('/api/chat/stream',{method:'POST',body:JSON.stringify({message:msg})});
+  if(r.status===401){handleLogout();return;}
+  var w=document.createElement('div'); w.className='flex justify-start anim-in mb-2';
+  var bub=document.createElement('div'); bub.className='max-w-[85%] rounded-2xl rounded-tl-none px-4 py-3 text-sm text-slate-200 leading-relaxed'; bub.style='background:rgba(17,24,39,.9);border:1px solid var(--border)';
+  var cnt=document.createElement('div'); cnt.textContent='▋';
+  bub.appendChild(cnt); w.appendChild(bub); _chatBox.appendChild(w);
+  var reader=r.body.getReader(),dec=new TextDecoder(),buf='',full='';
+  while(true){
+    var chunk=await reader.read(); if(chunk.done) break;
+    buf+=dec.decode(chunk.value,{stream:true});
+    var lines=buf.split('\n\n'); buf=lines.pop()||'';
+    for(var i=0;i<lines.length;i++){
+      var line=lines[i]; if(!line.startsWith('data: ')) continue;
+      try{
+        var dta=JSON.parse(line.slice(6));
+        if(dta.type==='final'){
+          full=dta.response; cnt.innerHTML=renderMd(full);
+          if(dta.tools_used>0||dta.facts_extracted&&dta.facts_extracted.length>0){
+            var mx=document.createElement('div'); mx.style='border-top:1px solid rgba(255,255,255,.06)';
+            mx.className='mt-2 pt-2 flex gap-3 flex-wrap';
+            mx.innerHTML=(dta.provider?'<span class="text-[10px] text-slate-500 mono">'+esc(dta.provider)+'</span>':'')+
+              (dta.tools_used>0?'<span class="text-[10px] text-slate-500">'+dta.tools_used+' tools</span>':'')+
+              (dta.time?'<span class="text-[10px] text-slate-500 mono">'+dta.time+'s</span>':'')+
+              (dta.facts_extracted&&dta.facts_extracted.length>0?'<span class="text-[10px] text-emerald-500">+'+dta.facts_extracted.length+' factos</span>':'');
+            bub.appendChild(mx);
+          }
+        }else if(dta.chunk){full+=dta.chunk;cnt.innerHTML=renderMd(full)+' ▋';}
+      }catch(ex){}
     }
+    _chatBox.scrollTop=_chatBox.scrollHeight;
+  }
 }
 
-// ─────────────────────────────────────────────────────────
-// NAVEGAÇÃO
-// ─────────────────────────────────────────────────────────
-async function switchView(view) {
-    state.currentView = view;
+// ════════════════════════════════════════════════════
+// NAVIGATION
+// ════════════════════════════════════════════════════
+var VIEW_TITLES = {chat:'Terminal de Chat',memory:'Memória HGR · Factos',works:'Works · Crons',llms:'Provedores LLM'};
 
-    document.getElementById('chatView').classList.add('hidden');
-    document.getElementById('pageViewContainer').classList.add('hidden');
+function switchView(view) {
+  appState.currentView = view;
+  ['chatView','memoryView','worksView','llmsView'].forEach(function(id){
+    document.getElementById(id).classList.add('hidden');
+  });
+  ['chat','memory','works','llms'].forEach(function(id){
+    var el = document.getElementById('nav-'+id); if(!el) return;
+    el.classList.remove('nav-active');
+    if(id!==view) el.classList.add('text-slate-400');
+    else { el.classList.remove('text-slate-400'); el.classList.add('nav-active'); }
+  });
+  document.getElementById('viewTitle').textContent = VIEW_TITLES[view] || view;
 
-    const navIds = ['chat','memory','works','llms'];
-    navIds.forEach(id => {
-        const el = document.getElementById(`nav-${id}`);
-        if (!el) return;
-        if (id === view) {
-            el.className = 'w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all nav-active';
-        } else {
-            el.className = 'w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all text-slate-400 hover:text-white hover:bg-white/5';
-        }
-    });
-
-    const titles = { chat:'Terminal de Chat', memory:'Base de Memória', works:'Workspaces', llms:'Provedores LLM' };
-    document.getElementById('viewTitle').innerText = titles[view] || view;
-
-    if (view === 'chat') {
-        document.getElementById('chatView').classList.remove('hidden');
-    } else {
-        const container = document.getElementById('pageViewContainer');
-        container.classList.remove('hidden');
-        container.innerHTML = `
-            <div class="flex flex-col items-center justify-center h-48 text-slate-500">
-                <i class="fa-solid fa-circle-notch fa-spin text-2xl mb-3"></i>
-                <p class="text-sm">Carregando ${view}...</p>
-            </div>`;
-        await loadPage(view === 'memory' ? 'memoria' : view, container);
-    }
-
-    if (window.innerWidth < 768) toggleSidebar();
+  if(view==='chat'){
+    document.getElementById('chatView').classList.remove('hidden');
+  } else if(view==='memory'){
+    document.getElementById('memoryView').classList.remove('hidden');
+    loadMemories();
+  } else if(view==='works'){
+    document.getElementById('worksView').classList.remove('hidden');
+    loadCrons();
+  } else if(view==='llms'){
+    document.getElementById('llmsView').classList.remove('hidden');
+    loadProviders();
+  }
+  hideMobile();
 }
 
-const pageCache = {};
-async function loadPage(pageName, container) {
-    try {
-        if (pageCache[pageName]) {
-            container.innerHTML = pageCache[pageName];
-            return;
-        }
-        const response = await fetch(`${PAGES_PATH}/${pageName}.html`);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const html     = await response.text();
-        const body     = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-        const content  = body ? body[1] : html;
-        pageCache[pageName] = content;
-        container.innerHTML = content;
-    } catch (err) {
-        container.innerHTML = `
-            <div class="text-center py-12 text-slate-500">
-                <i class="fa-solid fa-triangle-exclamation text-3xl mb-3 text-amber-500"></i>
-                <p class="text-sm">Página <strong>${pageName}.html</strong> não encontrada.</p>
-                <p class="text-xs text-slate-600 mt-1">${err.message}</p>
-            </div>`;
-        showToast(`Não foi possível carregar "${pageName}"`, 'warning');
-    }
+// ════════════════════════════════════════════════════
+// MEMORY VIEW
+// ════════════════════════════════════════════════════
+function debounceMemSearch() {
+  clearTimeout(_memTimer);
+  _memTimer = setTimeout(loadMemories, 300);
 }
 
-// ─────────────────────────────────────────────────────────
-// STATUS DO SERVIDOR
-// ─────────────────────────────────────────────────────────
-async function checkServerStatus() {
-    const pingEl = document.getElementById('connectionPing');
-    const msEl   = document.getElementById('pingMs');
-    try {
-        const start   = Date.now();
-        const res     = await fetch(`${API_BASE}/`, { method: 'GET', signal: AbortSignal.timeout(5000) });
-        const latency = Date.now() - start;
-        if (res.ok) {
-            pingEl.innerHTML = '<span class="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span> Online';
-            pingEl.className = 'text-emerald-500 font-mono flex items-center gap-1 text-[10px]';
-            msEl.innerText   = `${latency}ms`;
-        } else {
-            throw new Error(`HTTP ${res.status}`);
-        }
-    } catch {
-        pingEl.innerHTML = '<span class="w-1.5 h-1.5 bg-red-500 rounded-full"></span> Offline';
-        pingEl.className = 'text-red-500 font-mono flex items-center gap-1 text-[10px]';
-        msEl.innerText   = '';
-    }
+function getCatBadge(cat) {
+  var map={identity:'bg-purple',auto_extracted:'bg-blue',general:'bg-slate',preference:'bg-amber',project:'bg-blue',task:'bg-green'};
+  if(!cat) return '';
+  return '<span class="badge '+(map[cat]||'bg-slate')+'">'+esc(cat)+'</span>';
 }
 
-// ─────────────────────────────────────────────────────────
-// INICIALIZAÇÃO
-// ─────────────────────────────────────────────────────────
-window.onload = async () => {
-    checkServerStatus();
-    setInterval(checkServerStatus, 30000);
+function loadMemories() {
+  if(!appState.token) return;
+  var search   = (document.getElementById('memSearch')||{}).value||'';
+  var category = (document.getElementById('memCategory')||{}).value||'';
+  var params   = 'limit=200&min_importance=0';
+  if(search.trim())   params += '&search='+encodeURIComponent(search.trim());
+  if(category) params += '&category='+encodeURIComponent(category);
 
-    // Auto-resize textarea
-    const msgInput = document.getElementById('messageInput');
-    msgInput.addEventListener('input', function() {
-        this.style.height = 'auto';
-        this.style.height = Math.min(this.scrollHeight, 128) + 'px';
-    });
-    msgInput.addEventListener('keydown', e => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            sendMessage();
-        }
-    });
+  var list = document.getElementById('memList');
+  list.innerHTML = '<div class="empty"><i class="fa-solid fa-circle-notch fa-spin text-blue-500 text-xl"></i></div>';
 
-    document.getElementById('chatMode').addEventListener('change', () => {
-        const mode = document.getElementById('chatMode').value;
-        document.getElementById('modeDisplay').innerText = mode === 'stream' ? 'Streaming' : 'Normal';
-    });
+  apiCall('/api/memory/list?'+params)
+  .then(function(r){ return r.json(); })
+  .then(function(d) {
+    if(d.status!=='success') throw new Error(d.error||'Erro');
+    var s = d.stats||{};
+    document.getElementById('memStats').innerHTML =
+      '<div class="card p-3 text-center"><p class="text-2xl font-bold text-blue-400">'+d.count+'</p><p class="text-[10px] text-slate-500 mt-1">Factos</p></div>'+
+      '<div class="card p-3 text-center"><p class="text-2xl font-bold text-emerald-400">'+(s.unique_categories||0)+'</p><p class="text-[10px] text-slate-500 mt-1">Categorias</p></div>'+
+      '<div class="card p-3 text-center"><p class="text-2xl font-bold text-amber-400">'+parseFloat(s.avg_importance||0).toFixed(2)+'</p><p class="text-[10px] text-slate-500 mt-1">Imp. Média</p></div>';
 
-    // FIX: token válido → entra direto; sem token → mostra login
-    if (state.token) {
-        showToast('Token encontrado. Validando sessão...', 'info', { duration: 2000 });
-        await loadUserProfile();
-    } else {
-        // Garante que o overlay está visível com opacidade correta
-        const overlay = document.getElementById('authOverlay');
-        overlay.style.display  = 'flex';
-        overlay.style.opacity  = '1';
-        overlay.style.pointerEvents = '';
+    var badge = document.getElementById('memBadge');
+    if(d.count>0){badge.textContent=d.count;badge.classList.remove('hidden');}
+    else badge.classList.add('hidden');
+
+    if(!d.memories||d.memories.length===0){
+      list.innerHTML='<div class="empty"><i class="fa-solid fa-brain text-3xl opacity-20"></i><p class="text-sm">Nenhum facto na memória</p><p class="text-xs opacity-50">Extractados automaticamente durante conversas</p></div>';
+      return;
     }
-};
+    list.innerHTML='';
+    d.memories.forEach(function(mem){
+      var imp=parseFloat(mem.importance||0);
+      var color=imp>=0.8?'#10b981':imp>=0.5?'#3b82f6':'#64748b';
+      var created=mem.created_at?new Date(mem.created_at*1000).toLocaleDateString('pt',{day:'2-digit',month:'short'}):'—';
+      var card=document.createElement('div'); card.className='card p-3 anim-in';
+      card.innerHTML='<div class="flex items-start justify-between gap-3">'+
+        '<div class="flex-1 min-w-0">'+
+          '<div class="flex items-center gap-2 flex-wrap mb-1"><span class="mono text-xs font-semibold text-blue-300">'+esc(mem.key)+'</span>'+getCatBadge(mem.category)+'</div>'+
+          '<p class="text-sm text-slate-300 break-words leading-relaxed">'+esc(mem.value||'')+'</p>'+
+          '<div class="flex items-center gap-3 mt-2 flex-wrap">'+
+            '<div class="imp-bar w-20"><div class="imp-fill" style="width:'+(imp*100)+'%;background:'+color+'"></div></div>'+
+            '<span class="text-[10px] text-slate-500">'+(imp*100).toFixed(0)+'%</span>'+
+            '<span class="text-[10px] text-slate-600">'+created+'</span>'+
+            (mem.access_count>0?'<span class="text-[10px] text-slate-600">'+mem.access_count+'× acedido</span>':'')+
+          '</div>'+
+        '</div>'+
+        '<button onclick="deleteMemory('+mem.id+')" class="text-slate-600 hover:text-red-400 transition-colors p-1 flex-shrink-0"><i class="fa-solid fa-trash-can text-xs"></i></button>'+
+      '</div>';
+      list.appendChild(card);
+    });
+  })
+  .catch(function(e){
+    document.getElementById('memList').innerHTML='<div class="empty"><i class="fa-solid fa-triangle-exclamation text-3xl text-amber-500"></i><p>Erro ao carregar</p></div>';
+  });
+}
+
+function deleteMemory(id) {
+  if(!confirm('Apagar este facto?')) return;
+  apiCall('/api/memory/delete/'+id,{method:'DELETE'})
+  .then(function(r){return r.json();})
+  .then(function(d){
+    if(d.status==='success'){showToast('Facto removido.','success',{duration:2000});loadMemories();}
+    else showToast('Erro.','error');
+  }).catch(function(){showToast('Erro.','error');});
+}
+
+function confirmClearMem(){
+  if(!confirm('Apagar TODOS os factos? Esta acção é irreversível.')) return;
+  var rm=showLoadingToast('A limpar...');
+  apiCall('/api/memory/delete-all',{method:'DELETE'})
+  .then(function(r){return r.json();})
+  .then(function(d){rm();if(d.status==='success'){showToast(d.deleted_count+' factos removidos.','warning',{duration:3000});loadMemories();}})
+  .catch(function(){rm();showToast('Erro.','error');});
+}
+
+// ════════════════════════════════════════════════════
+// CRON VIEW
+// ════════════════════════════════════════════════════
+function setCronFilter(f) {
+  appState.cronFilter = f;
+  ['all','active','paused','error'].forEach(function(id){
+    var btn=document.getElementById('ctab-'+id); if(!btn) return;
+    btn.className='bsm text-[11px] '+(id===f?'b-blue':'b-ghost');
+  });
+  loadCrons();
+}
+
+function loadCrons() {
+  if(!appState.token) return;
+  var params = appState.cronFilter!=='all' ? '?status='+appState.cronFilter : '';
+  var list = document.getElementById('cronList');
+  list.innerHTML='<div class="empty"><i class="fa-solid fa-circle-notch fa-spin text-blue-500 text-xl"></i></div>';
+
+  apiCall('/api/crons/list'+params)
+  .then(function(r){return r.json();})
+  .then(function(d){
+    if(d.status!=='success') throw new Error(d.error);
+    var active=d.jobs.filter(function(j){return j.status==='active';}).length;
+    var badge=document.getElementById('cronBadge');
+    if(active>0){badge.textContent=active;badge.classList.remove('hidden');}
+    else badge.classList.add('hidden');
+
+    if(!d.jobs||d.jobs.length===0){
+      list.innerHTML='<div class="empty"><i class="fa-solid fa-clock-rotate-left text-3xl opacity-20"></i><p class="text-sm">Nenhum cron agendado</p><button onclick="openCronModal()" class="bsm b-blue mt-3"><i class="fa-solid fa-plus mr-1"></i>Criar cron</button></div>';
+      return;
+    }
+    list.innerHTML='';
+    d.jobs.forEach(function(job){list.appendChild(buildCronCard(job));});
+  })
+  .catch(function(){
+    list.innerHTML='<div class="empty"><i class="fa-solid fa-triangle-exclamation text-3xl text-amber-500"></i><p>Erro ao carregar</p></div>';
+  });
+}
+
+function buildCronCard(job) {
+  var card=document.createElement('div'); card.className='card p-4 anim-in';
+  var typeIcon=job.task_type==='shell'?'fa-terminal':job.task_type==='http'?'fa-globe':'fa-robot';
+  var typeCls=job.task_type==='shell'?'bg-slate':job.task_type==='http'?'bg-blue':'bg-purple';
+  var statusCls=job.status==='active'?'bg-green':job.status==='paused'?'bg-amber':'bg-red';
+  card.innerHTML=
+    '<div class="flex items-start justify-between gap-3">'+
+      '<div class="flex-1 min-w-0">'+
+        '<div class="flex items-center gap-2 flex-wrap mb-1">'+
+          '<span class="sdot '+job.status+'"></span>'+
+          '<span class="font-semibold text-sm">'+esc(job.name)+'</span>'+
+          '<span class="badge '+statusCls+'">'+job.status+'</span>'+
+          '<span class="badge '+typeCls+'"><i class="fa-solid '+typeIcon+' mr-1"></i>'+job.task_type+'</span>'+
+        '</div>'+
+        (job.description?'<p class="text-[11px] text-slate-500 mb-2">'+esc(job.description)+'</p>':'')+
+        '<div class="flex flex-wrap gap-3 text-[11px] text-slate-500 mono">'+
+          '<span><i class="fa-solid fa-calendar-clock mr-1"></i>'+esc(job.schedule)+'</span>'+
+          '<span class="text-blue-400">→ '+esc(job.next_run||'—')+'</span>'+
+          (job.run_count>0?'<span>'+job.run_count+'× exec</span>':'')+
+        '</div>'+
+        (job.last_output?'<div class="mt-2 p-2 rounded-lg text-[11px] mono text-slate-400 truncate" style="background:rgba(0,0,0,.3);border:1px solid var(--border)">'+esc(job.last_output.slice(0,120))+'</div>':'')+
+      '</div>'+
+      '<div class="flex flex-col gap-1.5 flex-shrink-0">'+
+        '<button onclick="runCronNow('+job.id+')" title="Executar agora" class="bsm b-ghost w-8 h-8 flex items-center justify-center p-0"><i class="fa-solid fa-play text-xs text-emerald-400"></i></button>'+
+        '<button onclick="toggleCron('+job.id+')" title="Pausar/Ativar" class="bsm b-ghost w-8 h-8 flex items-center justify-center p-0"><i class="fa-solid '+(job.status==='active'?'fa-pause':'fa-play')+' text-xs text-amber-400"></i></button>'+
+        '<button onclick="viewCronLogs('+job.id+',\''+esc(job.name)+'\')" title="Logs" class="bsm b-ghost w-8 h-8 flex items-center justify-center p-0"><i class="fa-solid fa-list text-xs text-slate-400"></i></button>'+
+        '<button onclick="deleteCron('+job.id+')" title="Apagar" class="bsm b-ghost w-8 h-8 flex items-center justify-center p-0"><i class="fa-solid fa-trash-can text-xs text-red-400"></i></button>'+
+      '</div>'+
+    '</div>';
+  return card;
+}
+
+function runCronNow(id) {
+  var rm=showLoadingToast('Executando...');
+  apiCall('/api/crons/'+id+'/run',{method:'POST'})
+  .then(function(r){return r.json();})
+  .then(function(d){rm();if(d.status==='success'){showToast('Executado!<br><span class="mono text-xs opacity-70">'+esc((d.last_output||'').slice(0,80))+'</span>','success',{duration:5000});loadCrons();}else showToast(d.error||'Erro','error');})
+  .catch(function(){rm();showToast('Erro','error');});
+}
+
+function toggleCron(id) {
+  apiCall('/api/crons/'+id+'/toggle',{method:'PATCH'})
+  .then(function(r){return r.json();})
+  .then(function(d){if(d.status==='success'){showToast(d.new_status==='active'?'Cron ativado.':'Cron pausado.','info',{duration:2500});loadCrons();}else showToast(d.error||'Erro','error');})
+  .catch(function(){showToast('Erro','error');});
+}
+
+function deleteCron(id) {
+  if(!confirm('Apagar este cron job?')) return;
+  apiCall('/api/crons/'+id,{method:'DELETE'})
+  .then(function(r){return r.json();})
+  .then(function(d){if(d.status==='success'){showToast('Cron apagado.','warning',{duration:2500});loadCrons();}else showToast(d.error||'Erro','error');})
+  .catch(function(){showToast('Erro','error');});
+}
+
+function viewCronLogs(id, name) {
+  var rm=showLoadingToast('Carregando logs...');
+  apiCall('/api/crons/'+id+'/logs?limit=10')
+  .then(function(r){return r.json();})
+  .then(function(d){
+    rm();
+    if(d.status!=='success') throw new Error();
+    var logs=d.logs||[];
+    var modal=document.createElement('div'); modal.className='modal-bg';
+    var logsHtml=logs.length===0?'<div class="empty"><p>Sem execuções ainda</p></div>':
+      logs.map(function(l){
+        var dt=l.started_at?new Date(l.started_at*1000).toLocaleString('pt'):'—';
+        var ok=l.status==='success';
+        return '<div class="card p-3 mb-2">'+
+          '<div class="flex items-center gap-2 mb-1">'+
+            '<i class="fa-solid '+(ok?'fa-check-circle text-emerald-400':'fa-times-circle text-red-400')+' text-xs"></i>'+
+            '<span class="text-xs font-semibold '+(ok?'text-emerald-400':'text-red-400')+'">'+l.status+'</span>'+
+            '<span class="text-[10px] text-slate-500 mono ml-auto">'+dt+'</span>'+
+            (l.duration?'<span class="text-[10px] text-slate-600 mono">'+l.duration.toFixed(2)+'s</span>':'')+
+          '</div>'+
+          (l.output?'<p class="text-[11px] text-slate-400 mono break-all">'+esc(l.output.slice(0,200))+'</p>':'')+
+          (l.error?'<p class="text-[11px] text-red-400 mono break-all">'+esc(l.error)+'</p>':'')+
+        '</div>';
+      }).join('');
+    modal.innerHTML='<div class="modal-box max-w-lg">'+
+      '<div class="flex items-center justify-between mb-4">'+
+        '<div><h3 class="font-bold text-base">Logs — '+esc(name)+'</h3><p class="text-[11px] text-slate-500">'+logs.length+' execuções</p></div>'+
+        '<button onclick="this.closest(\'.modal-bg\').remove()" class="text-slate-500 hover:text-white p-1"><i class="fa-solid fa-xmark text-lg"></i></button>'+
+      '</div>'+
+      '<div class="space-y-1 max-h-80 overflow-y-auto">'+logsHtml+'</div>'+
+      '<button onclick="this.closest(\'.modal-bg\').remove()" class="bsm b-ghost w-full mt-4">Fechar</button>'+
+    '</div>';
+    document.body.appendChild(modal);
+  })
+  .catch(function(){rm();showToast('Erro ao carregar logs.','error');});
+}
+
+// ── CRON MODAL ──────────────────────────────────────
+function openCronModal() {
+  document.getElementById('cronModal').classList.remove('hidden');
+  document.getElementById('cronName').focus();
+}
+function closeCronModal() {
+  document.getElementById('cronModal').classList.add('hidden');
+  document.getElementById('cronName').value='';
+  document.getElementById('cronDesc').value='';
+  document.getElementById('cronTask').value='';
+  document.getElementById('cronPreset').value='every:24h';
+  document.getElementById('cronScheduleCustom').classList.add('hidden');
+}
+function onPresetChange() {
+  var v=document.getElementById('cronPreset').value;
+  var inp=document.getElementById('cronScheduleCustom');
+  if(v==='custom'){inp.classList.remove('hidden');inp.focus();}
+  else{inp.classList.add('hidden');inp.value=v;}
+}
+function setTaskType(type) {
+  appState.taskType=type;
+  ['agent','shell','http'].forEach(function(t){
+    document.getElementById('tt-'+t).className='bsm '+(t===type?'b-blue':'b-ghost')+' text-center py-3';
+  });
+  var hints={agent:'O LLM executa como mensagem do utilizador.',shell:'Executa comando direto no shell.',http:'Faz GET request para o URL.'};
+  var labels={agent:'Prompt para o Agente',shell:'Comando Shell',http:'URL (GET Request)'};
+  var placeholders={agent:'ex: Verifica o estado do sistema e reporta anomalias',shell:'ex: df -h && free -h',http:'ex: https://api.exemplo.com/webhook'};
+  document.getElementById('ttHint').textContent=hints[type]||'';
+  document.getElementById('cronTaskLabel').textContent=labels[type]||'Tarefa';
+  document.getElementById('cronTask').placeholder=placeholders[type]||'';
+}
+function createCron() {
+  var name=document.getElementById('cronName').value.trim();
+  var desc=document.getElementById('cronDesc').value.trim();
+  var preset=document.getElementById('cronPreset').value;
+  var schedule=(preset==='custom'?document.getElementById('cronScheduleCustom').value:preset).trim();
+  var task=document.getElementById('cronTask').value.trim();
+
+  if(!name){showToast('Nome obrigatório.','warning');document.getElementById('cronName').focus();return;}
+  if(!schedule){showToast('Agendamento obrigatório.','warning');return;}
+  if(!task){showToast('Tarefa obrigatória.','warning');document.getElementById('cronTask').focus();return;}
+
+  var btn=document.getElementById('cronCreateBtn');
+  btn.disabled=true;
+  btn.innerHTML='<i class="fa-solid fa-circle-notch fa-spin mr-1"></i>Criando...';
+  var rm=showLoadingToast('A criar cron...');
+
+  apiCall('/api/crons/create',{method:'POST',body:JSON.stringify({name:name,description:desc,schedule:schedule,task:task,task_type:appState.taskType})})
+  .then(function(r){return r.json();})
+  .then(function(d){
+    rm();
+    if(d.status==='success'){
+      showToast('Cron "'+esc(name)+'" criado! Próximo: '+esc(d.next_run),'success',{duration:4000});
+      closeCronModal(); loadCrons();
+    } else { showToast(d.error||'Erro ao criar.','error'); }
+  })
+  .catch(function(){rm();showToast('Erro de rede.','error');})
+  .finally(function(){btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-plus mr-1"></i>Criar Cron';});
+}
+
+// ════════════════════════════════════════════════════
+// LLMs / PROVIDERS
+// ════════════════════════════════════════════════════
+function loadProviders() {
+  if(!appState.token) return;
+  var list=document.getElementById('providerList');
+  list.innerHTML='<div class="empty"><i class="fa-solid fa-circle-notch fa-spin text-blue-500 text-xl"></i></div>';
+  apiCall('/api/provider/list')
+  .then(function(r){return r.json();})
+  .then(function(d){
+    if(d.status!=='success') throw new Error();
+    appState.activeProvider=d.active_provider; appState.activeModel=d.active_model;
+    d.providers.forEach(function(p){ if(!appState.selectedModels[p.name]) appState.selectedModels[p.name]=p.active?d.active_model:p.default_model; });
+    list.innerHTML='';
+    d.providers.forEach(function(p){ list.appendChild(buildProviderCard(p,d.active_provider,d.active_model)); });
+  })
+  .catch(function(){
+    list.innerHTML='<div class="empty"><i class="fa-solid fa-triangle-exclamation text-3xl text-amber-500"></i><p>Erro ao carregar</p></div>';
+  });
+}
+
+function buildProviderCard(p, activeProv, activeModel) {
+  var isActive=p.name===activeProv;
+  var card=document.createElement('div');
+  card.className='card pcard p-4 '+(isActive?'active-p':'');
+  var chips=p.models.map(function(m){
+    var isSel=(appState.selectedModels[p.name]||p.default_model)===m;
+    var isAct=isActive&&m===activeModel;
+    return '<button onclick="selectModel(\''+p.name+'\',\''+m+'\')" class="badge bg-slate mchip '+(isSel?'sel':'')+'" style="cursor:pointer">'+esc(m)+(isAct?' ✓':'')+'</button>';
+  }).join(' ');
+  card.innerHTML=
+    '<div class="flex items-start justify-between gap-3 mb-3">'+
+      '<div>'+
+        '<div class="flex items-center gap-2 flex-wrap">'+
+          '<span class="font-bold text-sm">'+esc(p.label)+'</span>'+
+          (isActive?'<span class="badge bg-green">✓ ATIVO</span>':'')+
+          (!p.api_key_set?'<span class="badge bg-red">Sem Key</span>':'')+
+        '</div>'+
+        '<p class="text-[10px] text-slate-500 mono mt-0.5">'+esc(p.api_base)+'</p>'+
+        (isActive?'<p class="text-[10px] text-emerald-400 mono mt-1">Modelo: '+esc(activeModel)+'</p>':'')+
+      '</div>'+
+      '<button onclick="switchProvider(\''+p.name+'\')" id="pswitch-'+p.name+'" class="bsm '+(isActive?'b-green':'b-blue')+'" '+(p.api_key_set?'':'disabled style="opacity:.4;cursor:not-allowed"')+'>'+
+        (isActive?'<i class="fa-solid fa-check mr-1"></i>Ativo':'Usar')+
+      '</button>'+
+    '</div>'+
+    '<div class="flex flex-wrap gap-1.5">'+chips+'</div>'+
+    '<p class="text-[10px] text-slate-600 mt-2 mono">'+esc(p.api_key_env)+'</p>';
+  return card;
+}
+
+function selectModel(providerName, model) {
+  appState.selectedModels[providerName]=model;
+  // update chip UI
+  var allChips=document.querySelectorAll('[onclick^="selectModel(\''+providerName+'\'"]');
+  // reload view is simpler
+  loadProviders();
+}
+
+function switchProvider(name) {
+  var model=appState.selectedModels[name];
+  var btn=document.getElementById('pswitch-'+name);
+  if(btn){btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-circle-notch fa-spin mr-1"></i>';}
+  var rm=showLoadingToast('A mudar provider...');
+  apiCall('/api/provider/switch',{method:'POST',body:JSON.stringify({provider:name,model:model||undefined})})
+  .then(function(r){return r.json();})
+  .then(function(d){
+    rm();
+    if(d.status==='success'){
+      appState.activeProvider=d.provider; appState.activeModel=d.model;
+      document.getElementById('providerLabel').textContent=d.provider+' · '+d.model;
+      showToast('Provider: <strong>'+esc(d.label)+'</strong><br>Modelo: <span class="mono">'+esc(d.model)+'</span>','success',{duration:4000});
+      loadProviders();
+    } else { showToast(d.error||'Erro.','error'); }
+  })
+  .catch(function(){rm();showToast('Erro de rede.','error');})
+  .finally(function(){if(btn){btn.disabled=false;btn.innerHTML='Usar';}});
+}
+
+// ════════════════════════════════════════════════════
+// SERVER STATUS
+// ════════════════════════════════════════════════════
+function checkServerStatus() {
+  var pingEl=document.getElementById('pingEl');
+  var msEl=document.getElementById('pingMs');
+  var t=Date.now();
+  fetch(API_BASE+'/',{signal:AbortSignal.timeout(5000)})
+  .then(function(r){
+    var lat=Date.now()-t;
+    if(r.ok){
+      pingEl.innerHTML='<span class="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>Online';
+      pingEl.className='text-emerald-500 mono text-[10px] flex items-center gap-1.5';
+      msEl.textContent=lat+'ms';
+    } else throw new Error();
+  })
+  .catch(function(){
+    pingEl.innerHTML='<span class="w-1.5 h-1.5 bg-red-500 rounded-full"></span>Offline';
+    pingEl.className='text-red-500 mono text-[10px] flex items-center gap-1.5';
+    msEl.textContent='';
+  });
+}
+
+// ════════════════════════════════════════════════════
+// INIT — todas as funções já declaradas acima
+// ════════════════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', function() {
+  // chatBox reference
+  _chatBox = document.getElementById('chatBox');
+
+  // Password hints
+  var regPwd = document.getElementById('regPassword');
+  if (regPwd) {
+    regPwd.addEventListener('focus', function(){ document.getElementById('pwdHints').classList.remove('hidden'); });
+    regPwd.addEventListener('input', updatePwdHints);
+  }
+
+  // Enter keys on auth forms
+  ['loginUsername','loginPassword'].forEach(function(id){
+    var el=document.getElementById(id);
+    if(el) el.addEventListener('keydown', function(e){ if(e.key==='Enter') handleLogin(); });
+  });
+  ['regUsername','regEmail','regPassword'].forEach(function(id){
+    var el=document.getElementById(id);
+    if(el) el.addEventListener('keydown', function(e){ if(e.key==='Enter') handleRegister(); });
+  });
+
+  // Textarea auto-resize + Enter to send
+  var inp = document.getElementById('messageInput');
+  if (inp) {
+    inp.addEventListener('input', function(){ this.style.height='auto'; this.style.height=Math.min(this.scrollHeight,128)+'px'; });
+    inp.addEventListener('keydown', function(e){ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); sendMessage(); } });
+  }
+
+  // Chat mode display
+  var modeSelect = document.getElementById('chatMode');
+  if (modeSelect) {
+    modeSelect.addEventListener('change', function(){
+      document.getElementById('modeDisplay').textContent = this.value==='stream'?'Streaming':'Normal';
+    });
+  }
+
+  // Close cron modal on backdrop click
+  var cronModal = document.getElementById('cronModal');
+  if (cronModal) {
+    cronModal.addEventListener('click', function(e){ if(e.target===cronModal) closeCronModal(); });
+  }
+
+  // Server status
+  checkServerStatus();
+  setInterval(checkServerStatus, 30000);
+
+  // Auto-login or show login
+  if (appState.token) {
+    showToast('Token encontrado. Validando...','info',{duration:2000});
+    loadUserProfile();
+  } else {
+    var overlay=document.getElementById('authOverlay');
+    overlay.style.display='flex';
+    overlay.style.opacity='1';
+    overlay.style.pointerEvents='';
+  }
+});
 </script>
 </body>
 </html>

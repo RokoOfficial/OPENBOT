@@ -29,7 +29,7 @@ from quart import Quart, request, jsonify, Response
 # DIRETÓRIO BASE — altere conforme seu ambiente
 # ============================================================
 
-BASE_DIR = "/sdcard/Download/acoude_ide/WORKS"
+BASE_DIR = os.environ.get("OPENBOT_BASE_DIR", os.path.join(os.path.expanduser("~"), "openbot_workspace"))
 os.makedirs(BASE_DIR, exist_ok=True)
 os.makedirs(os.path.join(BASE_DIR, "exports"), exist_ok=True)
 
@@ -76,7 +76,7 @@ _PROVIDERS = {
         "api_base":    "https://api.openai.com/v1",
         "api_key_env": "OPENAI_API_KEY",
         "default_model": "gpt-4o-mini",
-        "models": ["gpt-4o-mini", "gpt-5.3"],
+        "models": ["gpt-4o-mini", "gpt-4o"],
         "label": "OpenAI (GPT)"
     },
     "deepseek": {
@@ -179,14 +179,14 @@ print("✅ Sistema JWT inicializado.")
 # ============================================================
 
 mem_config = MemoryConfig(
-    long_term_db        = os.path.join(BASE_DIR, "agent_memory_v3.db"),
-    short_term_size     = 30,       # FIX #4: era 20
-    short_term_ttl      = 3600,     # FIX #4: era 300 (5min) → 1h
-    medium_term_ttl     = 86400,    # FIX #4: era 3600 (1h) → 24h
-    importance_threshold= 0.3,      # FIX #3: era 0.5/0.7 → 0.3
-    min_relevance_score = 0.1,      # FIX #3: era 0.3 → 0.1
-    max_chat_history    = 100,      # FIX #1: novo
-    chat_history_to_llm = 40        # FIX #1: novo
+    db_path              = os.path.join(BASE_DIR, "agent_memory.db"),
+    short_term_size      = 30,
+    short_term_ttl       = 3600,
+    medium_term_ttl      = 86400,
+    importance_threshold = 0.3,
+    min_relevance_score  = 0.1,
+    max_chat_history     = 200,
+    chat_history_to_llm  = 40
 )
 
 memory_agent = MemoryEnhancedAgent(mem_config)
@@ -898,6 +898,33 @@ class MemorySQL:
 
 # Instância global do MemorySQL
 memory_sql = MemorySQL()
+
+
+# ============================================================
+# CRON — usa o CronManager integrado no HGR (memory_agent.crons)
+# Não precisamos de CronDB separado — o HGR já gere tudo no
+# mesmo agent_memory.db  (tabelas cron_jobs + cron_log)
+# ============================================================
+
+def _job_to_dict(job) -> Dict:
+    """Converte CronJob → dict compatível com o frontend."""
+    cm = memory_agent.crons
+    return {
+        "id":          job.id,
+        "user_id":     job.user_id,
+        "name":        job.name,
+        "description": job.description,
+        "schedule":    job.schedule,
+        "task":        job.task,
+        "task_type":   job.task_type,
+        "status":      job.status,
+        "run_count":   job.run_count,
+        "last_run":    job.last_run,
+        "next_run":    cm.format_next_run(job),
+        "last_output": job.last_output,
+        "created_at":  job.created_at,
+    }
+
 
 # ============================================================
 # TOOL SYSTEM - 40 FERRAMENTAS (32 + 8 Memória)
@@ -2061,8 +2088,11 @@ async def agent_loop(user_id: str, user_query: str):
                 messages.append({"role": "user", "content": f"[PARSE_ERROR] {e}"})
                 continue
 
-        # Resposta final — FIX #2: grava no histórico de chat real
+        # Resposta final — grava no histórico de chat real
         memory_agent.add_chat_message(user_id, "assistant", response_text)
+
+        # Extrai e persiste factos automaticamente da troca
+        facts_extracted = memory_agent.extract_and_store_facts(user_id, user_query, response_text)
 
         memory_agent.record_step(user_id, user_query, {
             "steps":          step,
@@ -2073,58 +2103,20 @@ async def agent_loop(user_id: str, user_query: str):
         })
 
         yield {
-            "type":       "final",
-            "response":   response_text,
-            "tools_used": tool_counter,
-            "steps":      step,
-            "time":       elapsed,
-            "provider":   ACTIVE_PROVIDER_NAME,
-            "model":      MODEL
+            "type":            "final",
+            "response":        response_text,
+            "tools_used":      tool_counter,
+            "steps":           step,
+            "time":            elapsed,
+            "provider":        ACTIVE_PROVIDER_NAME,
+            "model":           MODEL,
+            "facts_extracted": facts_extracted
         }
         break
 
 # ============================================================
 # API REST ENDPOINTS
 # ============================================================
-
-@app.route("/")
-async def index():
-    cpu, mem = get_resource_usage()
-    p = _PROVIDERS[ACTIVE_PROVIDER_NAME]
-    return jsonify({
-        "name":         "OPENBOT v3.1",
-        "status":       "online",
-        "architecture": "Multi-Provider + Tool Use + Memória Persistente",
-        "base_dir":     BASE_DIR,
-        "provider": {
-            "active":  ACTIVE_PROVIDER_NAME,
-            "label":   p["label"],
-            "model":   MODEL,
-            "api_base":p["api_base"],
-            "available": list(_PROVIDERS.keys())
-        },
-        "resources": {"cpu": f"{cpu}%", "memory": f"{mem}MB"},
-        "tools": {
-            "total":      len(tool_registry.list_tools()),
-            "categories": [c.value for c in ToolCategory]
-        },
-        "endpoints": {
-            "public":    ["POST /api/auth/register", "POST /api/auth/login"],
-            "protected": [
-                "POST /api/chat",
-                "POST /api/chat/stream",
-                "POST /api/chat/clear",
-                "GET  /api/provider/list",
-                "POST /api/provider/switch",
-                "GET  /api/user/profile",
-                "GET  /api/tools/list",
-                "POST /api/tools/execute/{name}",
-                "GET  /api/tools/history",
-                "POST /api/auth/logout",
-                "GET  /api/admin/stats"
-            ]
-        }
-    })
 
 # ── AUTH ──────────────────────────────────────────────────────
 
@@ -2407,6 +2399,210 @@ async def admin_stats():
         "memory": memory_global.get('stats', {}) if memory_global['status'] == 'success' else {}
     })
 
+# ── MEMORY REST ───────────────────────────────────────────────
+
+@app.route("/api/memory/list", methods=["GET"])
+@require_auth()
+async def memory_list():
+    """Lista memórias do utilizador com suporte a pesquisa e filtro por categoria"""
+    user_data = request.user_data
+    uid       = user_data["username"]
+
+    search      = request.args.get("search", "").strip()
+    category    = request.args.get("category", "").strip()
+    limit       = int(request.args.get("limit", 200))
+    min_imp     = float(request.args.get("min_importance", 0))
+
+    if search:
+        result = await memory_sql.memory_search(uid, search, min_importance=min_imp)
+        memories = result.get("results", [])
+    else:
+        result = await memory_sql.memory_recall(
+            uid,
+            category=category or None,
+            min_importance=min_imp,
+            limit=limit
+        )
+        memories = result.get("memories", [])
+
+    # Normaliza created_at para timestamp Unix (o frontend usa new Date(x*1000))
+    for m in memories:
+        ca = m.get("created_at")
+        if isinstance(ca, str):
+            try:
+                from datetime import datetime as _dt
+                m["created_at"] = int(_dt.fromisoformat(ca).timestamp())
+            except Exception:
+                m["created_at"] = 0
+        elif ca is None:
+            m["created_at"] = 0
+
+    stats_result = await memory_sql.memory_stats(uid)
+    stats = stats_result.get("stats", {}) if stats_result.get("status") == "success" else {}
+
+    return jsonify({
+        "status":   "success",
+        "count":    len(memories),
+        "memories": memories,
+        "stats": {
+            "unique_categories": stats.get("unique_categories", 0),
+            "avg_importance":    stats.get("avg_importance", 0),
+            "total_accesses":    stats.get("total_accesses", 0)
+        }
+    })
+
+
+@app.route("/api/memory/delete/<int:memory_id>", methods=["DELETE"])
+@require_auth()
+async def memory_delete_one(memory_id):
+    """Apaga uma memória específica pelo ID"""
+    user_data = request.user_data
+    uid       = user_data["username"]
+    result    = await memory_sql.memory_delete(uid, memory_id=memory_id)
+    if result.get("status") == "success":
+        return jsonify({"status": "success", "deleted": memory_id})
+    return jsonify({"error": result.get("error", "Não encontrado")}), 404
+
+
+@app.route("/api/memory/delete-all", methods=["DELETE"])
+@require_auth()
+async def memory_delete_all():
+    """Apaga todas as memórias do utilizador"""
+    user_data = request.user_data
+    uid       = user_data["username"]
+    result    = await memory_sql.memory_delete(uid, delete_all=True)
+    return jsonify({
+        "status":        "success",
+        "deleted_count": result.get("deleted_count", 0)
+    })
+
+
+# ── CRON REST ──────────────────────────────────────────────────
+
+@app.route("/api/crons/list", methods=["GET"])
+@require_auth()
+async def crons_list():
+    """Lista os cron jobs do utilizador"""
+    user_data = request.user_data
+    uid       = user_data["username"]
+    status    = request.args.get("status", "").strip() or None
+    jobs      = memory_agent.crons.list_jobs(uid, status=status)
+    return jsonify({"status": "success", "total": len(jobs), "jobs": [_job_to_dict(j) for j in jobs]})
+
+
+@app.route("/api/crons/create", methods=["POST"])
+@require_auth()
+async def crons_create():
+    """Cria um novo cron job"""
+    user_data = request.user_data
+    uid       = user_data["username"]
+    data      = await request.get_json()
+
+    name      = (data.get("name") or "").strip()
+    desc      = (data.get("description") or "").strip()
+    schedule  = (data.get("schedule") or "").strip()
+    task      = (data.get("task") or "").strip()
+    task_type = (data.get("task_type") or "agent").strip()
+
+    if not name:
+        return jsonify({"error": "Campo 'name' obrigatório"}), 400
+    if not schedule:
+        return jsonify({"error": "Campo 'schedule' obrigatório"}), 400
+    if not task:
+        return jsonify({"error": "Campo 'task' obrigatório"}), 400
+    if task_type not in ("agent", "shell", "http"):
+        task_type = "agent"
+
+    job = memory_agent.crons.create(uid, name, desc, schedule, task_type, task)
+    logging.info(f"Cron criado: {name} ({schedule}) por {uid}")
+    return jsonify({
+        "status":   "success",
+        "id":       job.id,
+        "next_run": memory_agent.crons.format_next_run(job)
+    })
+
+
+@app.route("/api/crons/<int:job_id>/run", methods=["POST"])
+@require_auth()
+async def crons_run_now(job_id):
+    """Executa um cron job imediatamente via HGR CronManager"""
+    user_data = request.user_data
+    uid       = user_data["username"]
+    result    = await memory_agent.crons.run_now(job_id, uid)
+    if "error" in result:
+        return jsonify({"error": result["error"]}), 404
+    return jsonify({
+        "status":      "success",
+        "last_output": result.get("last_output", ""),
+    })
+
+
+@app.route("/api/crons/<int:job_id>/toggle", methods=["PATCH"])
+@require_auth()
+async def crons_toggle(job_id):
+    """Pausa ou ativa um cron job"""
+    user_data = request.user_data
+    uid       = user_data["username"]
+    job       = memory_agent.crons.toggle(job_id, uid)
+    if job is None:
+        return jsonify({"error": "Job não encontrado"}), 404
+    return jsonify({"status": "success", "new_status": job.status})
+
+
+@app.route("/api/crons/<int:job_id>", methods=["DELETE"])
+@require_auth()
+async def crons_delete(job_id):
+    """Apaga um cron job"""
+    user_data = request.user_data
+    uid       = user_data["username"]
+    ok        = memory_agent.crons.delete(job_id, uid)
+    if not ok:
+        return jsonify({"error": "Job não encontrado"}), 404
+    return jsonify({"status": "success"})
+
+
+@app.route("/api/crons/<int:job_id>/logs", methods=["GET"])
+@require_auth()
+async def crons_logs(job_id):
+    """Retorna logs de execução de um cron job"""
+    user_data = request.user_data
+    uid       = user_data["username"]
+    limit     = int(request.args.get("limit", 10))
+    # Verifica ownership
+    job = memory_agent.crons.get(job_id)
+    if not job or job.user_id != uid:
+        return jsonify({"error": "Job não encontrado"}), 404
+    logs = memory_agent.crons.get_logs(job_id, limit=limit)
+    return jsonify({"status": "success", "total": len(logs), "logs": logs})
+
+
+# ── SERVE INDEX HTML ───────────────────────────────────────────
+
+@app.route("/", methods=["GET"])
+async def serve_index():
+    """Serve o index.html do mesmo diretório ou retorna status JSON"""
+    from quart import send_file as _sf
+    # Procura index.html no mesmo diretório do script
+    candidates = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html"),
+        os.path.join(BASE_DIR, "index.html"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "WEB", "index.html"),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            return await _sf(path)
+
+    cpu, mem = get_resource_usage()
+    p = _PROVIDERS[ACTIVE_PROVIDER_NAME]
+    return jsonify({
+        "name":    "OPENBOT v4.0",
+        "status":  "online",
+        "provider": p["label"],
+        "model":   MODEL,
+        "resources": {"cpu": f"{cpu}%", "memory": f"{mem}MB"},
+    })
+
+
 # ============================================================
 # MAINTENANCE TASKS
 # ============================================================
@@ -2448,9 +2644,48 @@ async def cleanup_task():
 # STARTUP
 # ============================================================
 
+async def _hgr_cron_executor(job) -> str:
+    """
+    Executor registado no HGR CronManager.
+    Recebe um CronJob e devolve o output como string.
+    """
+    uid = job.user_id
+
+    if job.task_type == "shell":
+        proc = await asyncio.wait_for(
+            asyncio.create_subprocess_shell(
+                job.task,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            ),
+            timeout=120
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+        out = stdout.decode("utf-8", errors="replace")
+        err = stderr.decode("utf-8", errors="replace")
+        return out + (f"\n[STDERR] {err}" if err else "")
+
+    elif job.task_type == "http":
+        async with aiohttp.ClientSession() as session:
+            async with session.get(job.task, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                body = await resp.text()
+                return f"HTTP {resp.status}: {body[:500]}"
+
+    else:  # agent
+        responses = []
+        async for r in agent_loop(uid, job.task):
+            responses.append(r)
+        return responses[0]["response"] if responses else "(sem resposta)"
+
+
 @app.before_serving
 async def startup():
+    # Regista o executor no HGR CronManager e arranca o scheduler
+    memory_agent.set_cron_executor(_hgr_cron_executor)
+    await memory_agent.start_cron_scheduler()
+
     asyncio.create_task(cleanup_task())
+
 
     try:
         test = await async_llm([{"role": "user", "content": "ok"}])

@@ -23,5 +23,5 @@ if __name__ == "__main__":
     config.accesslog = "-"
     config.errorlog = "-"
 
-    print("🚀 OPENBOT v3.0 com CORS habilitado → http://0.0.0.0:5000")
+    print("🚀 OPENBOT v4.0 com CORS habilitado → http://0.0.0.0:5000")
     asyncio.run(serve(app, config))
