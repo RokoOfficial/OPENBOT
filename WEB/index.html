@@ -289,10 +289,10 @@ textarea.finput{resize:none}
         </button>
       </div>
       <div class="flex justify-between items-center mt-2 px-2">
-        <span class="text-[10px] text-slate-600">Modo: <span id="modeDisplay" class="mono text-slate-500">Normal</span></span>
+        <span class="text-[10px] text-slate-600">Modo: <span id="modeDisplay" class="mono text-slate-500">Streaming</span></span>
         <select id="chatMode" class="bg-transparent border border-white/10 rounded-lg text-[10px] p-1 text-slate-400 outline-none">
+          <option value="stream" selected>Streaming</option>
           <option value="normal">Normal</option>
-          <option value="stream">Streaming</option>
         </select>
       </div>
     </div>
@@ -766,36 +766,70 @@ function sendMessage() {
 }
 
 async function sendStream(msg) {
-  var r = await apiCall('/api/chat/stream',{method:'POST',body:JSON.stringify({message:msg})});
+  var r;
+  try{
+    r = await apiCall('/api/chat/stream',{method:'POST',body:JSON.stringify({message:msg})});
+  }catch(err){
+    appendBotMessage('Erro de rede: '+err.message,null);
+    showToast('Erro de rede no streaming.','error');
+    return;
+  }
   if(r.status===401){handleLogout();return;}
+  if(!r.ok){
+    var failText='Falha ao iniciar o streaming.';
+    try{
+      var failJson=await r.json();
+      failText=failJson.error||failText;
+    }catch(_){}
+    appendBotMessage(failText,null);
+    showToast('Falha ao iniciar o streaming.','error');
+    return;
+  }
   var w=document.createElement('div'); w.className='flex justify-start anim-in mb-2';
   var bub=document.createElement('div'); bub.className='max-w-[85%] rounded-2xl rounded-tl-none px-4 py-3 text-sm text-slate-200 leading-relaxed'; bub.style='background:rgba(17,24,39,.9);border:1px solid var(--border)';
   var cnt=document.createElement('div'); cnt.textContent='▋';
   bub.appendChild(cnt); w.appendChild(bub); _chatBox.appendChild(w);
   var reader=r.body.getReader(),dec=new TextDecoder(),buf='',full='';
-  while(true){
-    var chunk=await reader.read(); if(chunk.done) break;
-    buf+=dec.decode(chunk.value,{stream:true});
-    var lines=buf.split('\n\n'); buf=lines.pop()||'';
-    for(var i=0;i<lines.length;i++){
-      var line=lines[i]; if(!line.startsWith('data: ')) continue;
-      try{
-        var dta=JSON.parse(line.slice(6));
-        if(dta.type==='final'){
-          full=dta.response; cnt.innerHTML=renderMd(full);
-          if(dta.tools_used>0||dta.facts_extracted&&dta.facts_extracted.length>0){
-            var mx=document.createElement('div'); mx.style='border-top:1px solid rgba(255,255,255,.06)';
-            mx.className='mt-2 pt-2 flex gap-3 flex-wrap';
-            mx.innerHTML=(dta.provider?'<span class="text-[10px] text-slate-500 mono">'+esc(dta.provider)+'</span>':'')+
-              (dta.tools_used>0?'<span class="text-[10px] text-slate-500">'+dta.tools_used+' tools</span>':'')+
-              (dta.time?'<span class="text-[10px] text-slate-500 mono">'+dta.time+'s</span>':'')+
-              (dta.facts_extracted&&dta.facts_extracted.length>0?'<span class="text-[10px] text-emerald-500">+'+dta.facts_extracted.length+' factos</span>':'');
-            bub.appendChild(mx);
+  var metaAttached=false;
+  try{
+    while(true){
+      var chunk=await reader.read(); if(chunk.done) break;
+      buf+=dec.decode(chunk.value,{stream:true});
+      var lines=buf.split('\n\n'); buf=lines.pop()||'';
+      for(var i=0;i<lines.length;i++){
+        var line=lines[i]; if(!line.startsWith('data: ')) continue;
+        try{
+          var dta=JSON.parse(line.slice(6));
+          if(dta.type==='final'){
+            full=dta.response||full; cnt.innerHTML=renderMd(full);
+            if(!metaAttached&&(dta.tools_used>0||dta.facts_extracted&&dta.facts_extracted.length>0||dta.provider||dta.time)){
+              var mx=document.createElement('div'); mx.style='border-top:1px solid rgba(255,255,255,.06)';
+              mx.className='mt-2 pt-2 flex gap-3 flex-wrap';
+              mx.innerHTML=(dta.provider?'<span class="text-[10px] text-slate-500 mono">'+esc(dta.provider)+'</span>':'')+
+                (dta.tools_used>0?'<span class="text-[10px] text-slate-500">'+dta.tools_used+' tools</span>':'')+
+                (dta.time?'<span class="text-[10px] text-slate-500 mono">'+dta.time+'s</span>':'')+
+                (dta.facts_extracted&&dta.facts_extracted.length>0?'<span class="text-[10px] text-emerald-500">+'+dta.facts_extracted.length+' factos</span>':'');
+              bub.appendChild(mx);
+              metaAttached=true;
+            }
+            cnt.innerHTML=renderMd(full);
+          }else if(dta.type==='error'){
+            if(!full) full=dta.error||'Erro durante o streaming.';
+            cnt.innerHTML=renderMd(full)+'<div class=\"mt-2 text-[11px] text-amber-400\">'+esc(dta.details||'Fluxo encerrado com segurança.')+'</div>';
+            showToast(dta.error||'Streaming finalizado com erro controlado.','warning');
+          }else if(dta.chunk){
+            full+=dta.chunk;
+            cnt.innerHTML=renderMd(full)+' ▋';
+          }else if(dta.type==='done'){
+            cnt.innerHTML=renderMd(full||'');
           }
-        }else if(dta.chunk){full+=dta.chunk;cnt.innerHTML=renderMd(full)+' ▋';}
-      }catch(ex){}
+        }catch(ex){}
+      }
+      _chatBox.scrollTop=_chatBox.scrollHeight;
     }
-    _chatBox.scrollTop=_chatBox.scrollHeight;
+  }catch(streamErr){
+    cnt.innerHTML=renderMd(full||'Streaming interrompido, mas a interface foi preservada.');
+    showToast('Streaming interrompido sem quebrar o chat.','warning');
   }
 }
 

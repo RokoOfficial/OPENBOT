@@ -6,6 +6,10 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
+
 # ── Cores ──────────────────────────────────────────────────────
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -122,7 +126,7 @@ done
 
 # ── Criar arquivo .env ────────────────────────────────────────
 setup_env() {
-    if [ -f ".env" ]; then
+    if [ -f "$PROJECT_ROOT/.env" ]; then
         warn ".env já existe."
         read -r -p "Deseja recriar? (s/N): " RECREATE
         [[ "${RECREATE,,}" != "s" ]] && return
@@ -135,15 +139,13 @@ setup_env() {
     echo ""
     echo "Providers disponíveis:"
     echo "  1) deepseek  (recomendado — custo baixo)"
-    echo "  2) groq       (gratuito — muito rápido)"
-    echo "  3) openai     (GPT-4)"
-    echo "  4) anthropic  (Claude)"
-    read -r -p "Provider [1-4, padrão=1]: " PROV_CHOICE
+    echo "  2) openai     (GPT-4o)"
+    echo "  3) anthropic  (Claude)"
+    read -r -p "Provider [1-3, padrão=1]: " PROV_CHOICE
 
     case "$PROV_CHOICE" in
-        2) PROVIDER="groq";      KEY_VAR="GROQ_API_KEY" ;;
-        3) PROVIDER="openai";    KEY_VAR="OPENAI_API_KEY" ;;
-        4) PROVIDER="anthropic"; KEY_VAR="ANTHROPIC_API_KEY" ;;
+        2) PROVIDER="openai";    KEY_VAR="OPENAI_API_KEY" ;;
+        3) PROVIDER="anthropic"; KEY_VAR="ANTHROPIC_API_KEY" ;;
         *) PROVIDER="deepseek";  KEY_VAR="DEEPSEEK_API_KEY" ;;
     esac
 
@@ -162,7 +164,7 @@ setup_env() {
     read -r -p "Diretório de trabalho [$DEFAULT_BASE]: " BASE_DIR
     BASE_DIR="${BASE_DIR:-$DEFAULT_BASE}"
 
-    cat > .env << EOF
+    cat > "$PROJECT_ROOT/.env" << EOF
 # ── Provider de IA ────────────────────────
 OPENBOT_PROVIDER=$PROVIDER
 $KEY_VAR=$API_KEY
@@ -194,11 +196,19 @@ setup_env
 # ── Verificar arquivos do projeto ────────────────────────────
 echo ""
 info "Verificando arquivos do projeto..."
-REQUIRED=("OPENBOT.py" "HGR.py" "auth_system.py" "config.py")
+REQUIRED=(
+    "BOT/openbot.py"
+    "BOT/HGR.py"
+    "BOT/auth_system.py"
+    "BOT/config.py"
+    "BOT/openbot_shared.py"
+    "BOT/core/providers.py"
+    "BOT/core/streaming.py"
+)
 MISSING=()
 
 for f in "${REQUIRED[@]}"; do
-    if [ -f "$f" ]; then
+    if [ -f "$PROJECT_ROOT/$f" ]; then
         success "$f"
     else
         warn "$f não encontrado"
@@ -212,7 +222,7 @@ done
 echo ""
 info "Criando estrutura de diretórios..."
 
-BASE_DIR_VALUE=$(grep "OPENBOT_BASE_DIR" .env | cut -d= -f2)
+BASE_DIR_VALUE=$(grep "OPENBOT_BASE_DIR" "$PROJECT_ROOT/.env" | cut -d= -f2)
 BASE_DIR_VALUE="${BASE_DIR_VALUE:-$HOME/openbot_workspace}"
 
 for dir in "$BASE_DIR_VALUE" "$BASE_DIR_VALUE/exports" "$BASE_DIR_VALUE/logs" "$BASE_DIR_VALUE/backups"; do
@@ -225,10 +235,13 @@ info "Testando configuração..."
 
 $PY - << 'PYEOF'
 import sys
-sys.path.insert(0, '.')
+from pathlib import Path
+
+project_root = Path.cwd()
+sys.path.insert(0, str(project_root / "BOT"))
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    load_dotenv(project_root / ".env")
 except ImportError:
     pass
 
@@ -254,10 +267,10 @@ echo "Para iniciar o servidor:"
 if [ "$ENV" != "termux" ]; then
     echo "  source venv/bin/activate"
 fi
-echo "  python OPENBOT.py"
+echo "  python BOT/openbot.py"
 echo ""
 echo "Com CORS habilitado:"
-echo "  python OPENBOT_CORS.py"
+echo "  python BOT/openbot_cors.py"
 echo ""
 echo "Acessar a API:"
 echo "  http://localhost:5000"

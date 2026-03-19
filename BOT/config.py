@@ -1,81 +1,31 @@
 #!/usr/bin/env python3
 """
-OPENBOT v3.1 - Configuração Centralizada
-Suporte multi-provider: OpenAI, DeepSeek, Groq (todos via openai==0.28.1)
+OPENBOT - Configuração Centralizada.
+
+Refatoração inicial:
+- providers e env compartilhados via openbot_shared.py;
+- defaults de servidor alinhados aos entrypoints;
+- base pronta para modularização progressiva.
 """
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional, Dict
-
-# ============================================================
-# PROVIDERS DISPONÍVEIS
-# Todos usam a mesma lib openai==0.28.1, só muda api_base + api_key + model
-# ============================================================
-
-PROVIDERS: Dict[str, dict] = {
-    "openai": {
-        "api_base":    "https://api.openai.com/v1",
-        "api_key_env": "OPENAI_API_KEY",
-        "models": {
-            "default": "gpt-4o-mini",
-            "available": ["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"]
-        },
-        "label": "OpenAI (GPT)"
-    },
-    "deepseek": {
-        "api_base":    "https://api.deepseek.com/v1",
-        "api_key_env": "DEEPSEEK_API_KEY",
-        "models": {
-            "default": "deepseek-chat",
-            "available": ["deepseek-chat", "deepseek-coder"]
-        },
-        "label": "DeepSeek"
-    },
-    "groq": {
-        "api_base":    "https://api.groq.com/openai/v1",
-        "api_key_env": "GROQ_API_KEY",
-        "models": {
-            "default": "llama-3.1-8b-instant",
-            "available": [
-                "llama-3.1-8b-instant",
-                "llama-3.1-70b-versatile",
-                "llama3-8b-8192",
-                "mixtral-8x7b-32768",
-                "gemma2-9b-it"
-            ]
-        },
-        "label": "Groq (LLaMA / Mixtral)"
-    }
-}
-
-# ============================================================
-# PROVIDER ATIVO — altere aqui ou via env OPENBOT_PROVIDER
-# Valores válidos: "openai" | "deepseek" | "groq"
-# ============================================================
-
-ACTIVE_PROVIDER_NAME = os.environ.get("OPENBOT_PROVIDER", "deepseek").lower()
-
-if ACTIVE_PROVIDER_NAME not in PROVIDERS:
-    print(f"⚠️  Provider '{ACTIVE_PROVIDER_NAME}' inválido. Usando 'deepseek'.")
-    ACTIVE_PROVIDER_NAME = "deepseek"
-
-ACTIVE_PROVIDER = PROVIDERS[ACTIVE_PROVIDER_NAME]
-
-# ============================================================
-# MODELO ATIVO — altere aqui ou via env OPENBOT_MODEL
-# ============================================================
-
-ACTIVE_MODEL = os.environ.get(
-    "OPENBOT_MODEL",
-    ACTIVE_PROVIDER["models"]["default"]
+from openbot_shared import (
+    PROVIDERS,
+    get_active_api_key,
+    get_active_model,
+    get_active_provider,
+    get_active_provider_name,
+    get_server_host,
+    get_server_port,
 )
 
-# ============================================================
-# API KEY — lida do env correto para o provider ativo
-# ============================================================
 
-ACTIVE_API_KEY = os.environ.get(ACTIVE_PROVIDER["api_key_env"], "").strip()
+ACTIVE_PROVIDER_NAME = get_active_provider_name()
+ACTIVE_PROVIDER = get_active_provider()
+ACTIVE_MODEL = get_active_model()
+ACTIVE_API_KEY = get_active_api_key()
 
 if not ACTIVE_API_KEY:
     print(f"⚠️  {ACTIVE_PROVIDER['api_key_env']} não definida!")
@@ -130,7 +80,7 @@ class AgentConfig:
     def switch_provider(self, provider_name: str, model: str = None):
         """
         Troca provider em runtime sem reiniciar o servidor.
-        Uso: agent_config.switch_provider("groq", "llama-3.1-8b-instant")
+        Uso: agent_config.switch_provider("anthropic", "claude-3-5-haiku-latest")
         """
         if provider_name not in PROVIDERS:
             raise ValueError(f"Provider '{provider_name}' inválido. Disponíveis: {list(PROVIDERS.keys())}")
@@ -182,12 +132,12 @@ class MemoryConfig:
 
 @dataclass
 class ServerConfig:
-    host: str       = "0.0.0.0"
-    port: int       = 5000
+    host: str       = get_server_host()
+    port: int       = get_server_port()
     debug: bool     = False
     users_db: str   = "users.db"
-    memory_db: str  = "agent_memory_v3.db"
-    log_file: str   = "openbot_v3.log"
+    memory_db: str  = "agent_memory.db"
+    log_file: str   = "openbot.log"
     log_level: str  = "INFO"
     enable_cors: bool = False
 
@@ -222,7 +172,7 @@ class Config:
     def print_summary(self):
         p = PROVIDERS.get(self.agent.provider_name, {})
         print("=" * 65)
-        print("🚀 OPENBOT v3.1 — Configuração")
+        print("🚀 OPENBOT — Configuração")
         print("=" * 65)
         print(f"\n🤖 LLM Provider:")
         print(f"   Provider : {p.get('label', self.agent.provider_name)}")
