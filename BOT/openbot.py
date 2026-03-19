@@ -66,49 +66,23 @@ except ImportError as e:
 # ============================================================
 
 import openai
-
-# ── Providers disponíveis ────────────────────────────────────
-# Altere ACTIVE_PROVIDER ou defina env OPENBOT_PROVIDER para trocar
-# Valores: "openai" | "deepseek" | "groq"
-
-_PROVIDERS = {
-    "openai": {
-        "api_base":    "https://api.openai.com/v1",
-        "api_key_env": "OPENAI_API_KEY",
-        "default_model": "gpt-4o-mini",
-        "models": ["gpt-4o-mini", "gpt-4o"],
-        "label": "OpenAI (GPT)"
-    },
-    "deepseek": {
-        "api_base":    "https://api.deepseek.com/v1",
-        "api_key_env": "DEEPSEEK_API_KEY",
-        "default_model": "deepseek-chat",
-        "models": ["deepseek-chat", "deepseek-coder"],
-        "label": "DeepSeek"
-    },
-    "groq": {
-        "api_base":    "https://api.groq.com/openai/v1",
-        "api_key_env": "GROQ_API_KEY",
-        "default_model": "llama-3.1-8b-instant",
-        "models": [
-            "llama-3.1-8b-instant",
-            "llama-3.1-70b-versatile",
-            "llama3-8b-8192",
-            "mixtral-8x7b-32768"
-        ],
-        "label": "Groq (LLaMA / Mixtral)"
-    }
-}
+from core.providers import call_llm
+from core.streaming import sse_event, stream_text_chunks
+from openbot_shared import (
+    PROVIDERS as _PROVIDERS,
+    get_active_api_key,
+    get_active_model,
+    get_active_provider,
+    get_active_provider_name,
+    get_server_host,
+    get_server_port,
+)
 
 # Provider e modelo ativos
-ACTIVE_PROVIDER_NAME = os.environ.get("OPENBOT_PROVIDER", "deepseek").lower()
-if ACTIVE_PROVIDER_NAME not in _PROVIDERS:
-    print(f"⚠️  Provider '{ACTIVE_PROVIDER_NAME}' inválido. Usando 'deepseek'.")
-    ACTIVE_PROVIDER_NAME = "deepseek"
-
-_P = _PROVIDERS[ACTIVE_PROVIDER_NAME]
-MODEL = os.environ.get("OPENBOT_MODEL", _P["default_model"])
-API_KEY = os.environ.get(_P["api_key_env"], "").strip()
+ACTIVE_PROVIDER_NAME = get_active_provider_name()
+_P = get_active_provider()
+MODEL = get_active_model()
+API_KEY = get_active_api_key()
 
 if not API_KEY:
     print(f"⚠️  {_P['api_key_env']} não definida! Configure a variável de ambiente.")
@@ -138,7 +112,7 @@ def switch_provider(provider_name: str, model: str = None):
         raise ValueError(f"{p['api_key_env']} não está definida no ambiente.")
     
     ACTIVE_PROVIDER_NAME = provider_name
-    MODEL                = model or p["default_model"]
+    MODEL                = model or p["models"]["default"]
     API_KEY              = api_key
     openai.api_key       = API_KEY
     openai.api_base      = p["api_base"]
@@ -1972,33 +1946,21 @@ tool_registry = ToolRegistry()
 tool_engine   = ToolExecutionEngine(tool_registry)
 
 # ============================================================
-# GROQ / OPENAI / DEEPSEEK CALL (via openai==0.28.1)
+# OPENAI / DEEPSEEK / ANTHROPIC CALL
 # ============================================================
-
-def sync_llm(messages):
-    """Chamada síncrona ao provider ativo"""
-    try:
-        response = openai.ChatCompletion.create(
-            model=MODEL,
-            messages=messages,
-            temperature=0.3,
-            max_tokens=2048
-        )
-        return response
-    except Exception as e:
-        logging.error(f"Erro LLM ({ACTIVE_PROVIDER_NAME}): {e}")
-        raise
 
 async def async_llm(messages) -> str:
     """Chamada assíncrona ao provider ativo"""
-    loop = asyncio.get_running_loop()
     try:
-        response = await loop.run_in_executor(
-            thread_pool,
-            lambda: sync_llm(messages)
+        return await call_llm(
+            messages=messages,
+            provider_name=ACTIVE_PROVIDER_NAME,
+            model=MODEL,
+            api_key=API_KEY,
+            executor=thread_pool,
         )
-        return response["choices"][0]["message"]["content"].strip()
     except Exception as e:
+        logging.error(f"Erro LLM ({ACTIVE_PROVIDER_NAME}): {e}")
         return f"Erro ({ACTIVE_PROVIDER_NAME}): {str(e)[:150]}"
 
 # ============================================================
@@ -2196,8 +2158,8 @@ async def provider_list():
             "api_base":      p["api_base"],
             "api_key_env":   p["api_key_env"],
             "api_key_set":   key_ok,
-            "models":        p["models"],
-            "default_model": p["default_model"],
+            "models":        p["models"]["available"],
+            "default_model": p["models"]["default"],
             "active":        name == ACTIVE_PROVIDER_NAME
         })
     return jsonify({
@@ -2212,7 +2174,7 @@ async def provider_list():
 async def provider_switch():
     """
     Troca provider em runtime.
-    Body: {"provider": "groq", "model": "llama-3.1-8b-instant"}
+    Body: {"provider": "anthropic", "model": "claude-3-5-haiku-latest"}
     """
     data          = await request.get_json()
     provider_name = data.get("provider", "").strip().lower()
@@ -2257,8 +2219,16 @@ async def chat():
         return jsonify({"error": "Mensagem vazia"}), 400
 
     responses = []
-    async for response in agent_loop(user_data['username'], message):
-        responses.append(response)
+    try:
+        async for response in agent_loop(user_data['username'], message):
+            responses.append(response)
+    except Exception as e:
+        logging.exception("Erro no endpoint /api/chat")
+        return jsonify({
+            "error": "Falha ao processar a mensagem.",
+            "details": str(e)[:180],
+            "provider": ACTIVE_PROVIDER_NAME,
+        }), 500
 
     return jsonify({
         "status":    "success",
@@ -2280,8 +2250,30 @@ async def chat_stream():
         return jsonify({"error": "Mensagem vazia"}), 400
 
     async def event_stream():
-        async for response in agent_loop(user_data['username'], message):
-            yield f"data: {json.dumps(response, ensure_ascii=False)}\n\n"
+        yield sse_event({
+            "type": "start",
+            "provider": ACTIVE_PROVIDER_NAME,
+            "model": MODEL,
+        })
+        try:
+            async for response in agent_loop(user_data['username'], message):
+                if response.get("type") == "final":
+                    response_text = response.get("response", "")
+                    async for chunk in stream_text_chunks(response_text, chunk_size=28):
+                        yield sse_event(chunk)
+                    yield sse_event(response)
+                else:
+                    yield sse_event(response)
+        except Exception as e:
+            logging.exception("Erro no endpoint /api/chat/stream")
+            yield sse_event({
+                "type": "error",
+                "error": "Falha durante o streaming.",
+                "details": str(e)[:180],
+                "provider": ACTIVE_PROVIDER_NAME,
+            })
+        finally:
+            yield sse_event({"type": "done"})
 
     return Response(event_stream(), mimetype="text/event-stream")
 
@@ -2762,7 +2754,7 @@ async def startup():
     for name, prov in _PROVIDERS.items():
         key_ok = "✅" if os.environ.get(prov["api_key_env"], "").strip() else "❌"
         active = " ← ATIVO" if name == ACTIVE_PROVIDER_NAME else ""
-        print(f"   {key_ok} {prov['label']} ({', '.join(prov['models'][:2])}...){active}")
+        print(f"   {key_ok} {prov['label']} ({', '.join(prov['models']['available'][:2])}...){active}")
     print("-" * 70)
     print("📦 Ferramentas (40):")
     for category in ToolCategory:
@@ -2780,7 +2772,7 @@ async def startup():
     print("   POST /api/provider/switch — troca provider em runtime")
     print("   POST /api/chat/clear      — limpa histórico de conversa")
     print("=" * 70)
-    print(f"🌐 http://0.0.0.0:5000")
+    print(f"🌐 http://{get_server_host()}:{get_server_port()}")
     print("=" * 70)
 
 # ============================================================
@@ -2792,7 +2784,7 @@ if __name__ == "__main__":
     from hypercorn.config import Config
 
     config         = Config()
-    config.bind    = ["0.0.0.0:5000"]
+    config.bind    = [f"{get_server_host()}:{get_server_port()}"]
     config.use_reloader = False
     config.accesslog    = "-"
     config.errorlog     = "-"
