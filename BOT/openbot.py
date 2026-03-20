@@ -24,6 +24,10 @@ from dataclasses import dataclass
 from enum import Enum
 
 from quart import Quart, request, jsonify, Response
+from routes import (
+    auth_bp, chat_bp, provider_bp, tools_bp, 
+    memory_bp, crons_bp, admin_bp
+)
 
 # ============================================================
 # DIRETÓRIO BASE — altere conforme seu ambiente
@@ -146,6 +150,9 @@ logging.basicConfig(
 user_db      = UserDatabase(os.path.join(BASE_DIR, "users.db"))
 auth_manager = AuthManager(user_db)
 app.config["auth_manager"] = auth_manager
+app.config["BASE_DIR"] = BASE_DIR
+app.config["thread_pool"] = thread_pool
+app.config["process_pool"] = process_pool
 print("✅ Sistema JWT inicializado.")
 
 # ============================================================
@@ -164,6 +171,7 @@ mem_config = MemoryConfig(
 )
 
 memory_agent = MemoryEnhancedAgent(mem_config)
+app.config["memory_agent"] = memory_agent
 print("✅ Memória HGR configurada.")
 
 class MemorySQL:
@@ -1945,6 +1953,8 @@ Quando não souber, diga que não sabe.
 tool_registry = ToolRegistry()
 tool_engine   = ToolExecutionEngine(tool_registry)
 
+
+
 # ============================================================
 # OPENAI / DEEPSEEK / ANTHROPIC CALL
 # ============================================================
@@ -2081,550 +2091,6 @@ async def agent_loop(user_id: str, user_query: str):
 # ============================================================
 
 # ── AUTH ──────────────────────────────────────────────────────
-
-@app.route("/api/auth/register", methods=["POST"])
-async def register():
-    data = await request.get_json()
-    if not data:
-        return jsonify({"error": "JSON inválido ou ausente"}), 400
-
-    username = data.get("username", "").strip()
-    password = data.get("password", "").strip()
-    email    = data.get("email", "").strip()
-
-    if not all([username, password, email]):
-        return jsonify({"error": "username, password e email são obrigatórios"}), 400
-
-    # CORRIGIDO: auth_manager.register_user retorna (success, message, user_data)
-    success, message, user_data = auth_manager.register_user(username, email, password)
-
-    if success:
-        return jsonify({
-            "status":  "success",
-            "message": message,
-            "user": {
-                "user_id":  user_data["user_id"],
-                "username": user_data["username"],
-                "email":    user_data["email"]
-            }
-        })
-    return jsonify({"error": message}), 400
-
-@app.route("/api/auth/login", methods=["POST"])
-async def login():
-    data = await request.get_json()
-    if not data:
-        return jsonify({"error": "JSON inválido ou ausente"}), 400
-
-    username = data.get("username", "").strip()
-    password = data.get("password", "").strip()
-    ip       = get_client_ip(request)
-
-    if not all([username, password]):
-        return jsonify({"error": "username e password são obrigatórios"}), 400
-
-    # CORRIGIDO: auth_manager.login retorna tupla (success, message, token)
-    success, message, token = auth_manager.login(username, password, ip)
-
-    if success:
-        return jsonify({
-            "status":   "success",
-            "token":    token,
-            "username": username,
-            "message":  message
-        })
-    return jsonify({"error": message}), 401
-
-@app.route("/api/auth/logout", methods=["POST"])
-@require_auth()
-async def logout():
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    # CORRIGIDO: método correto é revoke_token
-    auth_manager.revoke_token(token)
-    return jsonify({"status": "success", "message": "Logout realizado."})
-
-# ── PROVIDER ─────────────────────────────────────────────────
-
-@app.route("/api/provider/list", methods=["GET"])
-@require_auth()
-async def provider_list():
-    """Lista todos os providers e seus modelos"""
-    providers_info = []
-    for name, p in _PROVIDERS.items():
-        key_ok = bool(os.environ.get(p["api_key_env"], "").strip())
-        providers_info.append({
-            "name":          name,
-            "label":         p["label"],
-            "api_base":      p["api_base"],
-            "api_key_env":   p["api_key_env"],
-            "api_key_set":   key_ok,
-            "models":        p["models"]["available"],
-            "default_model": p["models"]["default"],
-            "active":        name == ACTIVE_PROVIDER_NAME
-        })
-    return jsonify({
-        "status":           "success",
-        "active_provider":  ACTIVE_PROVIDER_NAME,
-        "active_model":     MODEL,
-        "providers":        providers_info
-    })
-
-@app.route("/api/provider/switch", methods=["POST"])
-@require_auth()
-async def provider_switch():
-    """
-    Troca provider em runtime.
-    Body: {"provider": "anthropic", "model": "claude-3-5-haiku-latest"}
-    """
-    data          = await request.get_json()
-    provider_name = data.get("provider", "").strip().lower()
-    model         = data.get("model", "").strip() or None
-
-    if not provider_name:
-        return jsonify({"error": "Campo 'provider' obrigatório"}), 400
-
-    try:
-        result = switch_provider(provider_name, model)
-        return jsonify({"status": "success", **result})
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-
-# ── CHAT ──────────────────────────────────────────────────────
-
-@app.route("/api/chat/clear", methods=["POST"])
-@require_auth()
-async def chat_clear():
-    """
-    FIX #1: Limpa o histórico de conversa do usuário (nova conversa).
-    Não apaga memórias de longo prazo, apenas o histórico atual.
-    """
-    user_data = request.user_data
-    username  = user_data['username']
-    cleared   = memory_agent.clear_chat_history(username)
-    return jsonify({
-        "status":  "success",
-        "message": f"Histórico limpo ({cleared} mensagens removidas).",
-        "user":    username
-    })
-
-@app.route("/api/chat", methods=["POST"])
-@require_auth()
-async def chat():
-    """Chat com resposta completa"""
-    user_data = request.user_data
-    data      = await request.get_json()
-    message   = data.get("message", "").strip()
-
-    if not message:
-        return jsonify({"error": "Mensagem vazia"}), 400
-
-    responses = []
-    try:
-        async for response in agent_loop(user_data['username'], message):
-            responses.append(response)
-    except Exception as e:
-        logging.exception("Erro no endpoint /api/chat")
-        return jsonify({
-            "error": "Falha ao processar a mensagem.",
-            "details": str(e)[:180],
-            "provider": ACTIVE_PROVIDER_NAME,
-        }), 500
-
-    return jsonify({
-        "status":    "success",
-        "user":      user_data['username'],
-        "provider":  ACTIVE_PROVIDER_NAME,
-        "model":     MODEL,
-        "responses": responses
-    })
-
-@app.route("/api/chat/stream", methods=["POST"])
-@require_auth()
-async def chat_stream():
-    """Chat com streaming SSE"""
-    user_data = request.user_data
-    data      = await request.get_json()
-    message   = data.get("message", "").strip()
-
-    if not message:
-        return jsonify({"error": "Mensagem vazia"}), 400
-
-    async def event_stream():
-        yield sse_event({
-            "type": "start",
-            "provider": ACTIVE_PROVIDER_NAME,
-            "model": MODEL,
-        })
-        try:
-            async for response in agent_loop(user_data['username'], message):
-                if response.get("type") == "final":
-                    response_text = response.get("response", "")
-                    async for chunk in stream_text_chunks(response_text, chunk_size=28):
-                        yield sse_event(chunk)
-                    yield sse_event(response)
-                else:
-                    yield sse_event(response)
-        except Exception as e:
-            logging.exception("Erro no endpoint /api/chat/stream")
-            yield sse_event({
-                "type": "error",
-                "error": "Falha durante o streaming.",
-                "details": str(e)[:180],
-                "provider": ACTIVE_PROVIDER_NAME,
-            })
-        finally:
-            yield sse_event({"type": "done"})
-
-    return Response(event_stream(), mimetype="text/event-stream")
-
-# ── TOOLS ─────────────────────────────────────────────────────
-
-@app.route("/api/tools/list", methods=["GET"])
-@require_auth()
-async def tools_list():
-    return jsonify({
-        "status": "success",
-        "total":  len(tool_registry.list_tools()),
-        "tools":  tool_registry.list_tools()
-    })
-
-@app.route("/api/tools/execute/<tool_name>", methods=["POST"])
-@require_auth()
-async def tools_execute(tool_name):
-    user_data = request.user_data
-    data      = await request.get_json()
-    args      = data.get("args", [])
-    kwargs    = data.get("kwargs", {})
-
-    result = await tool_engine.execute(tool_name, user_data['username'], *args, **kwargs)
-    return jsonify({"status": "success", "result": result})
-
-@app.route("/api/tools/history", methods=["GET"])
-@require_auth()
-async def tools_history():
-    user_data = request.user_data
-    username  = user_data['username']
-    history   = tool_engine.execution_history.get(username, [])
-    return jsonify({
-        "status":  "success",
-        "total":   len(history),
-        "history": history[-50:]
-    })
-
-# ── USER ──────────────────────────────────────────────────────
-
-@app.route("/api/user/profile", methods=["GET"])
-@require_auth()
-async def user_profile():
-    user_data    = request.user_data
-    stats        = memory_agent.get_stats(user_data['username'])
-    memory_stats = await memory_sql.memory_stats(user_data['username'])
-    tool_stats   = {
-        "total_executions": len(tool_engine.execution_history.get(user_data['username'], [])),
-        "recent_tools": [
-            {"tool": h['tool'], "time": h['time'], "timestamp": h['timestamp']}
-            for h in tool_engine.execution_history.get(user_data['username'], [])[-5:]
-        ]
-    }
-    return jsonify({
-        "status": "success",
-        "user": {
-            "user_id":  user_data['user_id'],
-            "username": user_data['username'],
-            "email":    user_data['email'],
-            "is_admin": user_data.get('is_admin', False)
-        },
-        "provider": {
-            "active": ACTIVE_PROVIDER_NAME,
-            "model":  MODEL
-        },
-        "memory_stats":      stats,
-        "tool_stats":        tool_stats,
-        "persistent_memory": memory_stats.get('stats', {}) if memory_stats['status'] == 'success' else {}
-    })
-
-# ── ADMIN ─────────────────────────────────────────────────────
-
-@app.route("/api/admin/stats", methods=["GET"])
-@require_auth(admin_only=True)
-async def admin_stats():
-    cpu, mem = get_resource_usage()
-    db_sizes = {}
-    for db in ["users.db", "agent_memory_v3.db", "openbot_v3.log"]:
-        try:
-            size = os.path.getsize(os.path.join(BASE_DIR, db)) / (1024 * 1024)
-            db_sizes[db] = f"{size:.2f} MB"
-        except:
-            db_sizes[db] = "N/A"
-
-    all_executions = []
-    for user, history in tool_engine.execution_history.items():
-        all_executions.extend(history)
-
-    tool_usage = {}
-    for exec in all_executions:
-        tool = exec['tool']
-        tool_usage[tool] = tool_usage.get(tool, 0) + 1
-
-    memory_global = await memory_sql.memory_stats()
-
-    return jsonify({
-        "status": "success",
-        "system": {
-            "provider":  _PROVIDERS[ACTIVE_PROVIDER_NAME]["label"],
-            "model":     MODEL,
-            "base_dir":  BASE_DIR,
-            "resources": {"cpu": f"{cpu}%", "memory": f"{mem}MB"},
-            "databases": db_sizes,
-            "cache": {
-                "tool_cache":   len(tool_engine.cache),
-                "thread_pool":  thread_pool._max_workers,
-                "process_pool": process_pool._max_workers
-            }
-        },
-        "tools": {
-            "total_executions": len(all_executions),
-            "unique_users":     len(tool_engine.execution_history),
-            "usage":            tool_usage,
-            "available":        len(tool_registry.list_tools())
-        },
-        "memory": memory_global.get('stats', {}) if memory_global['status'] == 'success' else {}
-    })
-
-# ── MEMORY REST ───────────────────────────────────────────────
-
-@app.route("/api/memory/list", methods=["GET"])
-@require_auth()
-async def memory_list():
-    """Lista memórias do utilizador — funde memory_sql (memories) + HGR facts (auto-extraídos)"""
-    user_data = request.user_data
-    uid       = user_data["username"]
-
-    search      = request.args.get("search", "").strip()
-    category    = request.args.get("category", "").strip()
-    limit       = int(request.args.get("limit", 200))
-    min_imp     = float(request.args.get("min_importance", 0))
-
-    # ── FONTE 1: memory_sql (memories manuais/LLM tools — agent_memory_v3.db) ──
-    if search:
-        result   = await memory_sql.memory_search(uid, search, min_importance=min_imp)
-        sql_mems = result.get("results", [])
-    else:
-        result   = await memory_sql.memory_recall(
-            uid, category=category or None,
-            min_importance=min_imp, limit=limit
-        )
-        sql_mems = result.get("memories", [])
-
-    # ── FONTE 2: HGR facts (auto-extraídos após cada conversa — agent_memory.db) ──
-    try:
-        hgr_facts_raw = memory_agent.facts.recall(
-            uid,
-            category=category or None,
-            limit=limit,
-            min_importance=min_imp
-        )
-        hgr_mems = []
-        for f in hgr_facts_raw:
-            hgr_mems.append({
-                "id":           f.get("id", 0),
-                "user_id":      uid,
-                "key":          f.get("key", ""),
-                "value":        f.get("value", ""),
-                "importance":   f.get("importance", 0.5),
-                "category":     f.get("category", "auto_extracted"),
-                "tags":         json.loads(f["tags"]) if isinstance(f.get("tags"), str) else (f.get("tags") or []),
-                "access_count": f.get("access_count", 0),
-                "created_at":   f.get("created_at", 0),
-                "source":       "hgr"
-            })
-        if search:
-            term = search.lower()
-            hgr_mems = [m for m in hgr_mems
-                        if term in m["key"].lower() or term in str(m["value"]).lower()]
-    except Exception as e:
-        logger.warning(f"[memory/list] HGR facts erro (nao fatal): {e}")
-        hgr_mems = []
-
-    # ── FUSÃO: evita duplicados pela chave ──────────────────────────────────────
-    seen_keys = set()
-    memories  = []
-    for m in sql_mems:
-        k = str(m.get("key", ""))
-        seen_keys.add(k)
-        memories.append(m)
-    for m in hgr_mems:
-        k = str(m.get("key", ""))
-        if k not in seen_keys:
-            seen_keys.add(k)
-            memories.append(m)
-
-    # Ordena por importância desc e aplica limit
-    memories.sort(key=lambda x: float(x.get("importance", 0)), reverse=True)
-    if limit:
-        memories = memories[:limit]
-
-    # ── Normaliza created_at para timestamp Unix (frontend: new Date(x*1000)) ──
-    from datetime import datetime as _dt
-    for m in memories:
-        ca = m.get("created_at")
-        if isinstance(ca, str):
-            try:    m["created_at"] = int(_dt.fromisoformat(ca).timestamp())
-            except: m["created_at"] = 0
-        elif ca is None:
-            m["created_at"] = 0
-
-    # ── Stats combinadas ────────────────────────────────────────────────────────
-    stats_result = await memory_sql.memory_stats(uid)
-    stats        = stats_result.get("stats", {}) if stats_result.get("status") == "success" else {}
-    hgr_stats    = memory_agent.facts.stats(uid)
-
-    total_cats = max(
-        stats.get("unique_categories", 0),
-        hgr_stats.get("unique_categories", 0)
-    )
-    avg_imp_sql = stats.get("avg_importance") or 0
-    avg_imp_hgr = hgr_stats.get("avg_importance") or 0
-    avg_imp = round((avg_imp_sql + avg_imp_hgr) / 2 if avg_imp_sql and avg_imp_hgr
-                    else avg_imp_sql or avg_imp_hgr, 2)
-
-    return jsonify({
-        "status":   "success",
-        "count":    len(memories),
-        "memories": memories,
-        "stats": {
-            "unique_categories": total_cats,
-            "avg_importance":    avg_imp,
-            "total_accesses":    stats.get("total_accesses", 0)
-        }
-    })
-
-
-@app.route("/api/memory/delete/<int:memory_id>", methods=["DELETE"])
-@require_auth()
-async def memory_delete_one(memory_id):
-    """Apaga uma memória específica pelo ID"""
-    user_data = request.user_data
-    uid       = user_data["username"]
-    result    = await memory_sql.memory_delete(uid, memory_id=memory_id)
-    if result.get("status") == "success":
-        return jsonify({"status": "success", "deleted": memory_id})
-    return jsonify({"error": result.get("error", "Não encontrado")}), 404
-
-
-@app.route("/api/memory/delete-all", methods=["DELETE"])
-@require_auth()
-async def memory_delete_all():
-    """Apaga todas as memórias do utilizador"""
-    user_data = request.user_data
-    uid       = user_data["username"]
-    result    = await memory_sql.memory_delete(uid, delete_all=True)
-    return jsonify({
-        "status":        "success",
-        "deleted_count": result.get("deleted_count", 0)
-    })
-
-
-# ── CRON REST ──────────────────────────────────────────────────
-
-@app.route("/api/crons/list", methods=["GET"])
-@require_auth()
-async def crons_list():
-    """Lista os cron jobs do utilizador"""
-    user_data = request.user_data
-    uid       = user_data["username"]
-    status    = request.args.get("status", "").strip() or None
-    jobs      = memory_agent.crons.list_jobs(uid, status=status)
-    return jsonify({"status": "success", "total": len(jobs), "jobs": [_job_to_dict(j) for j in jobs]})
-
-
-@app.route("/api/crons/create", methods=["POST"])
-@require_auth()
-async def crons_create():
-    """Cria um novo cron job"""
-    user_data = request.user_data
-    uid       = user_data["username"]
-    data      = await request.get_json()
-
-    name      = (data.get("name") or "").strip()
-    desc      = (data.get("description") or "").strip()
-    schedule  = (data.get("schedule") or "").strip()
-    task      = (data.get("task") or "").strip()
-    task_type = (data.get("task_type") or "agent").strip()
-
-    if not name:
-        return jsonify({"error": "Campo 'name' obrigatório"}), 400
-    if not schedule:
-        return jsonify({"error": "Campo 'schedule' obrigatório"}), 400
-    if not task:
-        return jsonify({"error": "Campo 'task' obrigatório"}), 400
-    if task_type not in ("agent", "shell", "http"):
-        task_type = "agent"
-
-    job = memory_agent.crons.create(uid, name, desc, schedule, task_type, task)
-    logging.info(f"Cron criado: {name} ({schedule}) por {uid}")
-    return jsonify({
-        "status":   "success",
-        "id":       job.id,
-        "next_run": memory_agent.crons.format_next_run(job)
-    })
-
-
-@app.route("/api/crons/<int:job_id>/run", methods=["POST"])
-@require_auth()
-async def crons_run_now(job_id):
-    """Executa um cron job imediatamente via HGR CronManager"""
-    user_data = request.user_data
-    uid       = user_data["username"]
-    result    = await memory_agent.crons.run_now(job_id, uid)
-    if "error" in result:
-        return jsonify({"error": result["error"]}), 404
-    return jsonify({
-        "status":      "success",
-        "last_output": result.get("last_output", ""),
-    })
-
-
-@app.route("/api/crons/<int:job_id>/toggle", methods=["PATCH"])
-@require_auth()
-async def crons_toggle(job_id):
-    """Pausa ou ativa um cron job"""
-    user_data = request.user_data
-    uid       = user_data["username"]
-    job       = memory_agent.crons.toggle(job_id, uid)
-    if job is None:
-        return jsonify({"error": "Job não encontrado"}), 404
-    return jsonify({"status": "success", "new_status": job.status})
-
-
-@app.route("/api/crons/<int:job_id>", methods=["DELETE"])
-@require_auth()
-async def crons_delete(job_id):
-    """Apaga um cron job"""
-    user_data = request.user_data
-    uid       = user_data["username"]
-    ok        = memory_agent.crons.delete(job_id, uid)
-    if not ok:
-        return jsonify({"error": "Job não encontrado"}), 404
-    return jsonify({"status": "success"})
-
-
-@app.route("/api/crons/<int:job_id>/logs", methods=["GET"])
-@require_auth()
-async def crons_logs(job_id):
-    """Retorna logs de execução de um cron job"""
-    user_data = request.user_data
-    uid       = user_data["username"]
-    limit     = int(request.args.get("limit", 10))
-    # Verifica ownership
-    job = memory_agent.crons.get(job_id)
-    if not job or job.user_id != uid:
-        return jsonify({"error": "Job não encontrado"}), 404
-    logs = memory_agent.crons.get_logs(job_id, limit=limit)
-    return jsonify({"status": "success", "total": len(logs), "logs": logs})
-
-
-# ── SERVE INDEX HTML ───────────────────────────────────────────
 
 @app.route("/", methods=["GET"])
 async def serve_index():
@@ -2774,6 +2240,26 @@ async def startup():
     print("=" * 70)
     print(f"🌐 http://{get_server_host()}:{get_server_port()}")
     print("=" * 70)
+
+# Configurações para os Blueprints
+app.config["tool_registry"] = tool_registry
+app.config["tool_engine"] = tool_engine
+app.config["memory_sql"] = memory_sql
+app.config["ACTIVE_PROVIDER_NAME"] = ACTIVE_PROVIDER_NAME
+app.config["MODEL"] = MODEL
+app.config["PROVIDERS"] = _PROVIDERS
+app.config["agent_loop_func"] = agent_loop
+app.config["switch_provider_func"] = switch_provider
+app.config["get_resource_usage_func"] = get_resource_usage
+
+# Registro de Blueprints
+app.register_blueprint(auth_bp, url_prefix="/api/auth")
+app.register_blueprint(chat_bp, url_prefix="/api/chat")
+app.register_blueprint(provider_bp, url_prefix="/api/provider")
+app.register_blueprint(tools_bp, url_prefix="/api/tools")
+app.register_blueprint(memory_bp, url_prefix="/api/memory")
+app.register_blueprint(crons_bp, url_prefix="/api/crons")
+app.register_blueprint(admin_bp, url_prefix="/api/admin")
 
 # ============================================================
 # START SERVER
