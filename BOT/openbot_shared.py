@@ -32,6 +32,19 @@ PROVIDERS: Dict[str, dict] = {
         },
         "label": "DeepSeek",
     },
+    "openrouter": {
+        "api_base": "https://openrouter.ai/api/v1",
+        "api_key_env": "OPENROUTER_API_KEY",
+        "models": {
+            "default": "openai/gpt-oss-130b",
+            "available": [
+                "openai/gpt-oss-130b",
+                "openai/gpt-oss-120b",
+                "openai/gpt-4o-mini",
+            ],
+        },
+        "label": "OpenRouter",
+    },
     "groq": {
         "api_base": "https://api.groq.com/openai/v1",
         "api_key_env": "GROQ_API_KEY",
