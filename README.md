@@ -2,22 +2,23 @@
   <img src="assets/logo.png" alt="OPENBOT Logo" width="320">
 </p>
 
-# OPENBOT
+# OPENBOT 5.1
 
-Backend assíncrono em Python para um agente com autenticação JWT, memória HGR persistente, múltiplos provedores de LLM e interface web estática.
+Backend assíncrono em Python para agente com autenticação JWT, memória HGR persistente, múltiplos provedores LLM e **integração HVM/HMP distribuída via HTTP**.
 
-> **Estado atual:** o projeto está em uma **refatoração incremental**. O core funcional continua concentrado em `BOT/openbot.py`, enquanto a configuração compartilhada começou a ser extraída para módulos reutilizáveis.
+> **Versão 5.1:** adiciona serviço dedicado `BOT/hvm_api.py` (porta `7777`) e categoria de ferramentas `HVM` no core (`BOT/openbot.py`) para executar HMP/HVM por API remota.
 
 ---
 
 ## Visão geral
 
-O OPENBOT combina quatro blocos principais:
+O OPENBOT 5.1 combina cinco blocos principais:
 
-1. **API assíncrona** com Quart/Hypercorn.
+1. **API assíncrona principal** com Quart/Hypercorn (`BOT/openbot.py`).
 2. **Memória HGR** persistente com SQLite.
 3. **Autenticação** com JWT + bcrypt.
-4. **Frontend web** em `WEB/index.html`.
+4. **Camada de tools** com múltiplas categorias, incluindo `HVM`.
+5. **HVM API dedicada** para execução distribuída de HMP/HVM (`BOT/hvm_api.py`).
 
 ### Stack atual
 
@@ -26,6 +27,7 @@ O OPENBOT combina quatro blocos principais:
 - SQLite
 - JWT / bcrypt
 - `openai==0.28.1` com compat layer para OpenAI, DeepSeek e Groq
+- `aiohttp` para integração HTTP da categoria HVM
 - Tailwind via CDN no frontend
 
 ---
@@ -37,21 +39,22 @@ OPENBOT/
 ├── assets/
 │   └── logo.png
 ├── BOT/
-│   ├── openbot.py          # servidor principal atual (monolítico)
+│   ├── openbot.py          # servidor principal + ferramentas (inclui tools HVM via HTTP)
+│   ├── hvm_api.py          # NOVO: API HVM/HMP dedicada (porta 7777)
 │   ├── openbot_cors.py     # entrypoint com CORS
-│   ├── openbot_shared.py   # NOVO: configuração compartilhada/providers
+│   ├── openbot_shared.py   # configuração compartilhada/providers
 │   ├── HGR.py              # memória persistente e cron jobs
 │   ├── auth_system.py      # autenticação JWT + bcrypt
 │   ├── config.py           # config tipada para ambientes
 │   ├── install.sh          # instalação guiada
 │   └── README.md
 ├── WEB/
-│   └── index.html          # frontend atual (arquivo único)
+│   └── index.html
 ├── docs/
 │   ├── HGR_PT.md
 │   ├── HGR_EN.md
 │   ├── HGR_ES.md
-│   └── REFATORACAO.md      # NOVO: plano técnico da refatoração
+│   └── REFATORACAO.md
 ├── LICENSE
 └── README.md
 ```
@@ -60,35 +63,51 @@ OPENBOT/
 
 ## Início rápido
 
-### 1. Instalação
+### 1) Instalação
 
 ```bash
 bash BOT/install.sh
 ```
 
-### 2. Subir o servidor principal
+### 2) Subir OPENBOT principal
 
 ```bash
 python BOT/openbot.py
 ```
 
-### 3. Subir com CORS habilitado
+### 3) Subir OPENBOT com CORS
 
 ```bash
 python BOT/openbot_cors.py
 ```
 
-### 4. Fluxo básico de autenticação
+### 4) Subir HVM API dedicada (porta 7777)
 
 ```bash
-curl -X POST http://localhost:5000/api/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"username":"usuario","password":"Senha@123","email":"eu@email.com"}'
-
-curl -X POST http://localhost:5000/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username":"usuario","password":"Senha@123"}'
+python BOT/hvm_api.py
 ```
+
+### 5) Conectar OPENBOT à HVM API
+
+```bash
+export HVM_API_BASE="http://127.0.0.1:7777"
+export HVM_API_TOKEN="hvm_token_aqui"
+```
+
+---
+
+## Fluxo HVM/HMP distribuído (5.1)
+
+1. Cliente chama tool HVM no OPENBOT (ex.: `hvm_run_code`).
+2. `openbot.py` encaminha via HTTP para `hvm_api.py`.
+3. `hvm_api.py` valida token/escopo e executa `Engine.run_code(...)`.
+4. Resultado com `vars`, `logs`, `metrics` e `result` retorna ao OPENBOT.
+
+Tools HVM já registradas no OPENBOT:
+- `hvm_run_code`
+- `hvm_status`
+- `hvm_tools_list`
+- `hvm_fs_list`
 
 ---
 
@@ -101,24 +120,28 @@ curl -X POST http://localhost:5000/api/auth/login \
 | `DEEPSEEK_API_KEY` | Chave DeepSeek | — |
 | `GROQ_API_KEY` | Chave Groq | — |
 | `OPENAI_API_KEY` | Chave OpenAI | — |
-| `JWT_SECRET` | Segredo JWT | obrigatório em produção |
+| `JWT_SECRET` | Segredo JWT da API principal | obrigatório em produção |
 | `OPENBOT_ENV` | `development`, `testing`, `production` | `development` |
 | `OPENBOT_BASE_DIR` | diretório de trabalho do agente | `~/openbot_workspace` |
-| `HOST` | host HTTP | `0.0.0.0` |
-| `PORT` | porta HTTP | `5000` |
+| `HOST` | host HTTP (app atual em execução) | `0.0.0.0` |
+| `PORT` | porta HTTP (app atual em execução) | `5000` (OPENBOT) / `7777` (HVM API) |
 | `CORS_ORIGINS` | `*` ou lista separada por vírgula | `*` |
+| `HVM_API_BASE` | URL base da HVM API consumida pelo OPENBOT | `http://127.0.0.1:7777` |
+| `HVM_API_TOKEN` | Bearer token usado nas tools HVM | vazio |
+| `DB_PATH` | SQLite da HVM API | `hvm_auth.sqlite3` |
+| `FS_ROOT` | raiz de filesystem permitida na HVM API | `~/openbot_workspace` |
 
 ---
 
 ## Endpoints principais
 
-### Públicos
+### OPENBOT (porta 5000)
 
+Públicos:
 - `POST /api/auth/register`
 - `POST /api/auth/login`
 
-### Protegidos
-
+Protegidos:
 - `POST /api/auth/logout`
 - `POST /api/chat`
 - `POST /api/chat/stream`
@@ -132,34 +155,50 @@ curl -X POST http://localhost:5000/api/auth/login \
 - `GET /api/memory/stats`
 - `GET /api/crons/list`
 
----
+### HVM API (porta 7777)
 
-## Situação da refatoração
+Auth:
+- `POST /auth/register`
+- `POST /auth/login`
+- `GET /auth/me`
+- `POST /auth/logout`
 
-### Já iniciado nesta etapa
+Execução HVM/HMP:
+- `POST /hvm/run/code`
+- `POST /hvm/run/batch`
+- `GET /hvm/status`
+- `GET /hvm/last`
 
-- extração de configuração compartilhada para `BOT/openbot_shared.py`;
-- alinhamento inicial entre `openbot.py`, `config.py` e `openbot_cors.py`;
-- correções de documentação e do fluxo de instalação.
-
-### Próximos passos
-
-Veja `docs/REFATORACAO.md` para o plano técnico detalhado.
+Tools/FS:
+- `GET /hvm/tools`
+- `DELETE /hvm/tools/<name>`
+- `GET /fs/list`
+- `POST /fs/mkdir`
 
 ---
 
 ## Segurança
 
-- **Não** suba segredos reais para o repositório.
-- Em produção, defina `JWT_SECRET` forte.
+- **Nunca** versione segredos reais (tokens/chaves) em arquivos ou commits.
+- Use `JWT_SECRET` forte em produção.
 - Restrinja `CORS_ORIGINS` para seus domínios.
-- Rotacione imediatamente qualquer token exposto acidentalmente.
+- Na HVM API, use token com escopo mínimo (`run` e/ou `tools`).
+- Mantenha `FS_ROOT` restrito ao workspace necessário.
+- Rotacione imediatamente qualquer credencial exposta.
 
 ---
 
-## Limitações atuais conhecidas
+## Limitações conhecidas
 
-- `BOT/openbot.py` ainda concentra boa parte da aplicação.
-- `WEB/index.html` ainda é um frontend monolítico com HTML/CSS/JS inline.
-- A camada de providers ainda depende da estratégia atual baseada em `openai==0.28.1`.
-- A suíte de testes automatizados ainda precisa ser expandida.
+- `BOT/openbot.py` ainda é monolítico e concentra muitas responsabilidades.
+- `WEB/index.html` segue como frontend único sem modularização.
+- A suíte de testes automatizados precisa expansão (principalmente para fluxo distribuído OPENBOT ↔ HVM API).
+
+---
+
+## Roadmap sugerido pós-5.1
+
+- `openbot.py` em módulos (`api/`, `tools/`, `security/`, `memory/`).
+- RBAC/ABAC para ferramentas perigosas.
+- Observabilidade (métricas/traces) no tráfego OPENBOT ↔ HVM API.
+- Testes de integração para `/api/tools/execute/hvm_*` com mock do serviço 7777.
