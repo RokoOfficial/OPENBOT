@@ -912,6 +912,7 @@ class ToolCategory(Enum):
     CRYPTO = "crypto"
     UTILITY = "utility"
     MEMORY = "memory"  # Nova categoria
+    HVM = "hvm"
 
 @dataclass
 class Tool:
@@ -1790,6 +1791,73 @@ class ToolRegistry:
             description="Exporta memórias. Args: user_id, [format=json], [include_stats=true]",
             category=ToolCategory.MEMORY,
             function=memory_export
+        ))
+
+        # ===== HVM HTTP TOOLS =====
+
+        HVM_API_BASE = os.environ.get("HVM_API_BASE", "http://127.0.0.1:7777").rstrip("/")
+        HVM_API_TOKEN = os.environ.get("HVM_API_TOKEN", "").strip()
+
+        async def _hvm_request(method: str, endpoint: str, payload: Dict = None, params: Dict = None) -> Dict:
+            url = f"{HVM_API_BASE}{endpoint}"
+            headers = {"Content-Type": "application/json"}
+            if HVM_API_TOKEN:
+                headers["Authorization"] = f"Bearer {HVM_API_TOKEN}"
+
+            timeout = aiohttp.ClientTimeout(total=60)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.request(method, url, json=payload, params=params, headers=headers) as resp:
+                    text = await resp.text()
+                    try:
+                        data = json.loads(text) if text else {}
+                    except Exception:
+                        data = {"raw": text}
+                    return {"status": resp.status, "data": data, "url": url}
+
+        async def hvm_run_code(code: str, initial_vars: Dict = None) -> str:
+            result = await _hvm_request("POST", "/hvm/run/code", {"code": code, "initial_vars": initial_vars or {}})
+            return json.dumps(result, ensure_ascii=False)
+
+        self.register(Tool(
+            name="hvm_run_code",
+            description="Executa código HMP/HVM via API 7777. Args: code, [initial_vars]",
+            category=ToolCategory.HVM,
+            function=hvm_run_code,
+            dangerous=True
+        ))
+
+        async def hvm_status() -> str:
+            result = await _hvm_request("GET", "/hvm/status")
+            return json.dumps(result, ensure_ascii=False)
+
+        self.register(Tool(
+            name="hvm_status",
+            description="Consulta status da API HVM via HTTP",
+            category=ToolCategory.HVM,
+            function=hvm_status
+        ))
+
+        async def hvm_tools_list() -> str:
+            result = await _hvm_request("GET", "/hvm/tools")
+            return json.dumps(result, ensure_ascii=False)
+
+        self.register(Tool(
+            name="hvm_tools_list",
+            description="Lista tools registradas na API HVM",
+            category=ToolCategory.HVM,
+            function=hvm_tools_list
+        ))
+
+        async def hvm_fs_list(path: str = "") -> str:
+            params = {"path": path} if path else None
+            result = await _hvm_request("GET", "/fs/list", params=params)
+            return json.dumps(result, ensure_ascii=False)
+
+        self.register(Tool(
+            name="hvm_fs_list",
+            description="Lista arquivos via API HVM. Args: [path]",
+            category=ToolCategory.HVM,
+            function=hvm_fs_list
         ))
 
 # ============================================================
