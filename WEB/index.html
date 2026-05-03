@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>OPENBOT v4.0</title>
+<title>OPENBOT v5.1</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -103,6 +103,8 @@ textarea.finput{resize:none}
 .mchip{cursor:pointer;transition:all .15s}
 .mchip:hover{border-color:rgba(59,130,246,.5)!important;background:rgba(59,130,246,.1)!important}
 .mchip.sel{background:rgba(59,130,246,.2)!important;border-color:var(--accent)!important;color:#60a5fa!important}
+.tool-pulse{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;border:1px solid rgba(59,130,246,.35);background:rgba(59,130,246,.12);color:#93c5fd;animation:toolPulse 1.2s infinite}
+@keyframes toolPulse{0%{box-shadow:0 0 0 0 rgba(59,130,246,.35)}70%{box-shadow:0 0 0 8px rgba(59,130,246,0)}100%{box-shadow:0 0 0 0 rgba(59,130,246,0)}}
 </style>
 </head>
 <body class="flex overflow-hidden">
@@ -116,7 +118,7 @@ textarea.finput{resize:none}
         <div class="w-16 h-16 rounded-2xl bg-blue-600 flex items-center justify-center mb-4" style="box-shadow:0 8px 32px rgba(59,130,246,.4)">
           <i class="fa-solid fa-bolt text-2xl text-white"></i>
         </div>
-        <h2 class="text-xl font-bold">OPENBOT v4.0</h2>
+        <h2 class="text-xl font-bold">OPENBOT v5.1</h2>
         <p class="text-xs text-slate-500 mt-1 mono">HGR-First · Memória Persistente</p>
       </div>
       <div class="space-y-3">
@@ -192,7 +194,7 @@ textarea.finput{resize:none}
       </div>
       <div>
         <h1 class="font-bold text-sm">OPENBOT</h1>
-        <span class="mono text-[10px] text-slate-500">v4.0 · HGR-First</span>
+        <span class="mono text-[10px] text-slate-500">v5.1 · HGR + HVM</span>
       </div>
     </div>
 
@@ -689,11 +691,21 @@ function clearChatHistory() {
   hideMobile();
 }
 
+function stripToolTags(text){
+  if(!text) return '';
+  return String(text)
+    .replace(/<tool>[\s\S]*?<\/tool>/gi,'')
+    .replace(/\[TOOL_RESULT:[^\]]*\][\s\S]*/gi,'')
+    .replace(/<\/?tool>/gi,'');
+}
+
 function renderMd(text) {
-  return esc(text)
+  var clean = stripToolTags(text);
+  return esc(clean)
     .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
     .replace(/`(.+?)`/g,'<code style="background:rgba(59,130,246,.15);padding:1px 5px;border-radius:4px;font-size:11px;font-family:monospace">$1</code>')
-    .replace(/\n/g,'<br>');
+    .replace(/
+/g,'<br>');
 }
 
 function appendUserMessage(text) {
@@ -766,36 +778,69 @@ function sendMessage() {
 }
 
 async function sendStream(msg) {
-  var r = await apiCall('/api/chat/stream',{method:'POST',body:JSON.stringify({message:msg})});
-  if(r.status===401){handleLogout();return;}
   var w=document.createElement('div'); w.className='flex justify-start anim-in mb-2';
   var bub=document.createElement('div'); bub.className='max-w-[85%] rounded-2xl rounded-tl-none px-4 py-3 text-sm text-slate-200 leading-relaxed'; bub.style='background:rgba(17,24,39,.9);border:1px solid var(--border)';
   var cnt=document.createElement('div'); cnt.textContent='▋';
   bub.appendChild(cnt); w.appendChild(bub); _chatBox.appendChild(w);
-  var reader=r.body.getReader(),dec=new TextDecoder(),buf='',full='';
-  while(true){
-    var chunk=await reader.read(); if(chunk.done) break;
-    buf+=dec.decode(chunk.value,{stream:true});
-    var lines=buf.split('\n\n'); buf=lines.pop()||'';
-    for(var i=0;i<lines.length;i++){
-      var line=lines[i]; if(!line.startsWith('data: ')) continue;
-      try{
-        var dta=JSON.parse(line.slice(6));
-        if(dta.type==='final'){
-          full=dta.response; cnt.innerHTML=renderMd(full);
-          if(dta.tools_used>0||dta.facts_extracted&&dta.facts_extracted.length>0){
-            var mx=document.createElement('div'); mx.style='border-top:1px solid rgba(255,255,255,.06)';
-            mx.className='mt-2 pt-2 flex gap-3 flex-wrap';
-            mx.innerHTML=(dta.provider?'<span class="text-[10px] text-slate-500 mono">'+esc(dta.provider)+'</span>':'')+
-              (dta.tools_used>0?'<span class="text-[10px] text-slate-500">'+dta.tools_used+' tools</span>':'')+
-              (dta.time?'<span class="text-[10px] text-slate-500 mono">'+dta.time+'s</span>':'')+
-              (dta.facts_extracted&&dta.facts_extracted.length>0?'<span class="text-[10px] text-emerald-500">+'+dta.facts_extracted.length+' factos</span>':'');
-            bub.appendChild(mx);
+
+  var hasFinal=false, full='';
+  try {
+    var r = await apiCall('/api/chat/stream',{method:'POST',body:JSON.stringify({message:msg})});
+    if(r.status===401){handleLogout();return;}
+    if(!r.body) throw new Error('stream indisponível');
+
+    var reader=r.body.getReader(),dec=new TextDecoder(),buf='';
+    while(true){
+      var chunk=await reader.read(); if(chunk.done) break;
+      buf+=dec.decode(chunk.value,{stream:true});
+      var lines=buf.split('
+
+'); buf=lines.pop()||'';
+      for(var i=0;i<lines.length;i++){
+        var line=lines[i]; if(!line.startsWith('data: ')) continue;
+        try{
+          var dta=JSON.parse(line.slice(6));
+          if(dta.type==='final'){
+            hasFinal=true;
+            full=stripToolTags(dta.response||full);
+            cnt.innerHTML=renderMd(full);
+            var chips=[];
+            if(dta.provider) chips.push('<span class="text-[10px] text-slate-500 mono">'+esc(dta.provider)+'</span>');
+            if(dta.tools_used>0) chips.push('<span class="tool-pulse"><i class="fa-solid fa-screwdriver-wrench text-[9px]"></i>'+dta.tools_used+' tools</span>');
+            if(dta.time) chips.push('<span class="text-[10px] text-slate-500 mono">'+dta.time+'s</span>');
+            if(dta.facts_extracted&&dta.facts_extracted.length>0) chips.push('<span class="text-[10px] text-emerald-500">+'+dta.facts_extracted.length+' factos</span>');
+            if(chips.length){
+              var mx=document.createElement('div'); mx.style='border-top:1px solid rgba(255,255,255,.06)'; mx.className='mt-2 pt-2 flex gap-3 flex-wrap';
+              mx.innerHTML=chips.join(''); bub.appendChild(mx);
+            }
+          }else if(dta.chunk){
+            full+=stripToolTags(dta.chunk);
+            cnt.innerHTML=renderMd(full)+' ▋';
+          }else if(dta.error){
+            throw new Error(dta.error);
           }
-        }else if(dta.chunk){full+=dta.chunk;cnt.innerHTML=renderMd(full)+' ▋';}
-      }catch(ex){}
+        }catch(ex){/* ignora linha inválida */}
+      }
+      _chatBox.scrollTop=_chatBox.scrollHeight;
     }
-    _chatBox.scrollTop=_chatBox.scrollHeight;
+
+    if(!hasFinal){
+      throw new Error('stream interrompido antes do final');
+    }
+  } catch (err) {
+    showToast('Streaming falhou, aplicando fallback...','warning',{duration:2500});
+    try{
+      var rr=await apiCall('/api/chat',{method:'POST',body:JSON.stringify({message:msg})});
+      var d=await rr.json();
+      if(d.status==='success'&&d.responses&&d.responses.length>0){
+        var resp=d.responses[0];
+        cnt.innerHTML=renderMd(resp.response||'');
+      }else{
+        cnt.innerHTML=renderMd('Falha no streaming e no fallback: '+(d.error||'erro desconhecido'));
+      }
+    }catch(e2){
+      cnt.innerHTML=renderMd('Erro de rede no streaming: '+(err.message||err));
+    }
   }
 }
 
