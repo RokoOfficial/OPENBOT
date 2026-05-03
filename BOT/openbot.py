@@ -2018,6 +2018,28 @@ tool_engine   = ToolExecutionEngine(tool_registry)
 def sync_llm(messages):
     """Chamada síncrona ao provider ativo"""
     try:
+        if ACTIVE_PROVIDER_NAME == "openrouter":
+            headers = {
+                "Authorization": f"Bearer {API_KEY}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": os.environ.get("OPENROUTER_HTTP_REFERER", "https://openbot.local"),
+                "X-Title": os.environ.get("OPENROUTER_APP_TITLE", "OPENBOT 5.1"),
+            }
+            payload = {
+                "model": MODEL,
+                "messages": messages,
+                "temperature": 0.3,
+                "max_tokens": 2048,
+            }
+            response = requests.post(
+                f"{_PROVIDERS['openrouter']['api_base']}/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=90,
+            )
+            response.raise_for_status()
+            return response.json()
+
         response = openai.ChatCompletion.create(
             model=MODEL,
             messages=messages,
